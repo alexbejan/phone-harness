@@ -206,6 +206,17 @@ PY
   reading are fine; anything that leaves the phone (send, call, sign in) and
   any Settings change need the user's explicit go for that action.
 
+### When the harness falls short, fix the harness
+
+If a task needs something this skill does not cover, or a documented fact is
+wrong on the real phone, do not work around it inside the task: the fix goes
+into the fork at `~/.phone-harness` and ships as a PR you merge yourself.
+Read `~/.phone-harness/AGENTS.md` for the loop (trigger, measure once, fix in
+the right file, prove with `phone-harness --doctor devicehub` and
+`phone-harness < scripts/prove-devicehub.py`, regenerate the installed skill,
+branch from `devicehub`, `gh pr create --base devicehub`, merge). Only
+consent-rule changes and upstream PRs wait for the user.
+
 ## Android
 
 Same helpers, different phone. `phone-harness config set platform android`
