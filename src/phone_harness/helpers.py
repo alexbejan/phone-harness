@@ -18,6 +18,7 @@ from pathlib import Path
 
 from . import transport
 from .transport import Unsupported          # re-exported for agent scripts
+from .jev import jev_available, judge_verify, pick_text, classify_screen   # optional Jev judgements
 
 CORE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = CORE_DIR.parent.parent

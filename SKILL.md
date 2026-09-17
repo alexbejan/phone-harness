@@ -71,6 +71,8 @@ PY
      a field's contents. If you cannot name it, you cannot tell success from a
      no-op, and most phone failures are silent no-ops.
   2. **Do one action**, then check that one thing. How you check is yours:
+     `judge_verify()` (below, when Jev is on) turns "did it land?" into a
+     typed answer with a confidence gate for a fraction of a cent;
      `ocr()` is cheap and gives every visible string with a tap-ready point;
      `screenshot()` costs more but shows you everything OCR cannot read —
      icons, images, whether a row is highlighted. Use the cheap one in a loop
@@ -139,6 +141,38 @@ PY
   the helpers don't cover — but raw CGEvents don't ride the helpers' delivery
   path, and where they land is its own question per event type. Check what
   actually happened on screen rather than assuming the event arrived.
+
+## Judging with Jev (optional)
+
+When `phone-harness config get jev.enabled` is `true`, three helpers send the
+visible screen text (OCR strings or tree labels, never screenshots or
+coordinates) to TypeSafe Jev through jevkit and return a typed verdict with
+`gate` in `act` / `caution` / `stop`. Each returns `unavailable: True`
+instead of raising when Jev is off, unconfigured or unreachable, so branch on
+it and fall back to `find_text` / `tap_text`.
+
+- `judge_verify(expect, before, after=None)`: `before` is an `ocr()` you
+  took before acting, `after` defaults to a fresh read. Returns `landed`,
+  `p_landed`, `dialog`, `error`, `auth`, `gate`, and `diff` (what appeared
+  and disappeared, computed in code). `auth` or `error` always gate `stop`.
+  A screen with no diff never calls Jev and reports `note: "no change"`.
+- `pick_text(target, tap=False)`: the visible string that best matches a
+  description ("the row that opens Wi-Fi settings"), as a tap-ready box, or
+  `box: None` when nothing matches. With `tap=True` it taps only on
+  `gate == "act"`. Use it where `tap_text` needs a label you cannot predict.
+- `classify_screen()`: `kind` (normal, dialog, permission, auth, loading,
+  error, paywall, empty), `consequential` (a Send, Pay, Delete, Sign in,
+  Allow style control is visible), `dialog_kind`, `keyboard`, `modal`.
+
+Rules: Jev is advisory. `gate: act` continues a batch, `caution` means look
+at a screenshot, `stop` means report. `consequential: True` is one more
+reason to get the user's go before the action, never a reason to skip it.
+Jev cannot see icons, images or highlights; a `screenshot()` still decides
+those. Measured 2026-09-17 on a desktop eval, jev-1.13.0: 30/31 picks,
+7/7 absent targets returned none, median 324 ms, no confident-and-wrong
+answer. On the test iPhone (Device Hub, 2026-09-17, both input routes):
+`judge_verify` saw General open at p=0.97 and 0.95, `pick_text` chose About
+for a paraphrased target, and an absent target returned none with `stop`.
 
 ## Device Hub (iPhone through Xcode 27)
 

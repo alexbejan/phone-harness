@@ -44,6 +44,9 @@ DEFAULTS = {
         "restore_clipboard": False,   # put the old clipboard back after a paste
         "paste_settle": 2.0,          # ...after this many seconds, if so
     },
+    "jev": {
+        "enabled": False,      # send visible screen text to TypeSafe Jev for judgements (jevkit)
+    },
     "devicehub": {
         "udid": "",            # the phone Device Hub drives; empty = the one connected iPhone
         "inset": None,         # [l, t, r, b] screen-in-ring fractions for an unknown bezel
@@ -55,6 +58,7 @@ DEFAULTS = {
 # Settings that historically had their own environment variable.
 _ENV_ALIASES = {
     "platform": ["PHONE_HARNESS_PLATFORM"],
+    "jev.enabled": ["PHONE_HARNESS_JEV"],
     "android.adb": ["PHONE_HARNESS_ADB"],
 }
 
