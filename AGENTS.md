@@ -25,7 +25,11 @@ the fix goes into the harness, not into a one-off workaround in the task:
    `agent-workspace/agent_helpers.py` (no PR needed, just commit).
 4. **Prove it.** `phone-harness --doctor devicehub` and
    `phone-harness < scripts/prove-devicehub.py` must both pass, plus a check
-   for the thing you changed. Then `phone-harness skill >
+   for the thing you changed. When the Cua Driver daemon is present, run the
+   proof in **both** input modes, because they take different code paths:
+   `phone-harness < scripts/prove-devicehub.py` (auto -> cua) and
+   `PHONE_HARNESS_DEVICEHUB_INPUT=cgevents phone-harness <
+   scripts/prove-devicehub.py`. Then `phone-harness skill >
    ~/.claude/skills/phone-harness/SKILL.md` so the installed skill matches.
 5. **Ship it.** Branch from `devicehub` (`fix/<slug>` or `feat/<slug>`),
    commit with the measurement in the message, push, `gh pr create --base
@@ -36,6 +40,12 @@ the fix goes into the harness, not into a one-off workaround in the task:
 6. **Tell the next agent.** If the fix changes how a task should be written,
    it belongs in `SKILL.md`, because that file is the only thing the next
    agent reads.
+
+Two input routes exist on Device Hub (see the README table): Cua Driver for
+focus-free taps/scrolls, CGEvents+AX for everything else. If you extend what
+Cua covers, measure it the way the existing rows were measured (a native
+screenshot before and after, and confirm focus stayed put), and only move an
+op onto Cua once it beats the CGEvent path on the real phone.
 
 Token-frugal: no subagents or workflows for this; read the file you change,
 measure on the phone, write, prove, ship.

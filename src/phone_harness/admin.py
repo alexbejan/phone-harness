@@ -187,6 +187,23 @@ def _doctor_devicehub():
     front = dh.is_frontmost()
     _check(f"Device Hub frontmost: {front}", True)
 
+    # Cua Driver route (optional): focus-free taps and scrolls. Only checked
+    # when the route resolved to it, so a machine without Cua is not failed.
+    if phone.input_route == "cua":
+        try:
+            v = phone.verify_with_cua()
+            _check(f"Cua Driver route active; its window read agrees with the "
+                   f"backend ({phone._session_state()})", v["agrees"],
+                   "Cua sees a different sharing state than devicectl", fatal=False)
+        except dh.CuaUnavailable as e:
+            _check("Cua Driver route active but verify_with_cua works", False,
+                   str(e)[:160], fatal=False)
+    else:
+        from . import config
+        want = str(config.get("devicehub.input") or "auto").lower()
+        _check(f"input route: cgevents (devicehub.input={want}; Cua daemon "
+               f"{'off' if want != 'cgevents' else 'not requested'})", True)
+
 
 # --- Android: adb -> a phone -> authorised -> awake -> tree ------------------
 

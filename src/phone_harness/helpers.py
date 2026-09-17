@@ -552,6 +552,23 @@ def shell(cmd, binary=False, timeout=60):
     return send("raw", cmd=cmd, binary=binary, timeout=timeout)
 
 
+def input_route():
+    """Which route the current backend uses for taps and scrolls, or None.
+    On Device Hub: "cua" (focus-free via Cua Driver) or "cgevents"."""
+    return getattr(phone, "input_route", None)
+
+
+def verify_with_cua():
+    """Device Hub only: a second, independent read of the Mac side through Cua
+    Driver, for when a step silently did nothing. Returns a screenshot path,
+    the labels Cua sees, and whether Cua agrees with the backend on the
+    sharing state. Raises if the backend has no such route."""
+    fn = getattr(phone, "verify_with_cua", None)
+    if fn is None:
+        raise Unsupported("verify_with_cua is Device Hub only")
+    return fn()
+
+
 # --- timing -----------------------------------------------------------------
 
 def wait(seconds=1.0):

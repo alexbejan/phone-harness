@@ -206,6 +206,28 @@ PY
   reading are fine; anything that leaves the phone (send, call, sign in) and
   any Settings change need the user's explicit go for that action.
 
+**Focus-free taps and scrolls via Cua Driver (superset:computer).** If the Cua
+Driver daemon is running (it is what the `superset:computer` skill drives), the
+backend routes **taps, scrolls and swipes** through it, which does **not** bring
+Device Hub to the front — no window popping while you work. Everything else
+(typing, paste, cmd combos, Home/App Switcher/Lock, long press) stays on the
+direct path, which briefly fronts Device Hub. This is automatic:
+`devicehub.input` is `auto` (prefer Cua when its daemon answers), and
+`input_route()` returns `"cua"` or `"cgevents"` so you can tell. Force it with
+`phone-harness config set devicehub.input cua|cgevents|auto`. Measured: Cua
+tap 3/3 with focus held, scroll pans 0.96:1; Cua cannot type, paste, work
+menus or hold a long press on the phone, which is why those stay direct.
+
+**A second pair of eyes when a step silently did nothing.** `verify_with_cua()`
+(Device Hub only, needs the daemon) returns `{screenshot, session_labels,
+backend_state, agrees}`: a Cua screenshot of the whole Device Hub *window*
+(not the phone framebuffer) and the Mac-side accessibility labels Cua sees,
+plus whether Cua agrees with the backend on the sharing state. Use it to catch
+a macOS dialog or a stale "Screen Sharing Unavailable" that the phone-only
+screenshot cannot show. If you have `superset:computer` loaded, you can also
+drive Device Hub directly with `cua-driver call …` for anything the harness
+does not wrap.
+
 ### When the harness falls short, fix the harness
 
 If a task needs something this skill does not cover, or a documented fact is
