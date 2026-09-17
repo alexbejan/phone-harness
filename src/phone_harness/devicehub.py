@@ -594,32 +594,54 @@ class DeviceHub(Backend):
         time.sleep(duration)
         self._mouse(Quartz.kCGEventLeftMouseUp, x, y)
 
-    def _input_drag(self, x1, y1, x2, y2, duration=0.35, steps=14):
+    def _input_drag(self, x1, y1, x2, y2, duration=0.35, steps=14, ease_out=False):
+        """Touch-drag. Linear by default, which is what a swipe wants: iOS
+        derives momentum from the finger's speed at release, so a linear
+        drag keeps flicking after the finger lifts. `ease_out=True` slows
+        the path quadratically into the end point and repeats the end point
+        a few times before lifting, so the touch releases at zero speed and
+        the content stops where the finger stopped. Measured on Settings, a
+        364 px drag: linear 1.82x, linear + a 0.3 s still hold 1.84x (the
+        phone keeps the last velocity when no touch updates arrive), ease-out
+        0.90x (1:1 minus touch slop)."""
         self._inside(x1, y1)
         self._inside(x2, y2)
         activate()
         self._mouse(Quartz.kCGEventMouseMoved, x1, y1)
         time.sleep(0.08)
         self._mouse(Quartz.kCGEventLeftMouseDown, x1, y1)
+        time.sleep(0.05)
         for i in range(1, steps + 1):
             t = i / steps
+            if ease_out:
+                t = 1 - (1 - t) ** 2
             self._mouse(Quartz.kCGEventLeftMouseDragged,
                         x1 + (x2 - x1) * t, y1 + (y2 - y1) * t)
             time.sleep(duration / steps)
+        if ease_out:
+            for _ in range(10):
+                self._mouse(Quartz.kCGEventLeftMouseDragged, x2, y2)
+                time.sleep(0.03)
         self._mouse(Quartz.kCGEventLeftMouseUp, x2, y2)
 
     def _input_scroll(self, x, y, dy, dx=0, steps=14):
         """A touch-drag: Device Hub ignores scroll-wheel events. dy < 0
         reveals content further down (the finger moves up), matching the
         convention helpers.scroll() sends. Clamped to the screen so the
-        finger never leaves the phone."""
+        finger never leaves the phone.
+
+        The path eases out so the touch releases at zero speed and the list
+        moves by the dragged distance (0.9x measured) instead of flicking on
+        (1.8x for a linear drag), which made scroll_until() skip rows."""
         b = self._bounds()
         m = 12
         x1 = min(max(x - dx / 2, b["x"] + m), b["x"] + b["w"] - m)
         x2 = min(max(x + dx / 2, b["x"] + m), b["x"] + b["w"] - m)
         y1 = min(max(y - dy / 2, b["y"] + m), b["y"] + b["h"] - m)
         y2 = min(max(y + dy / 2, b["y"] + m), b["y"] + b["h"] - m)
-        self._input_drag(x1, y1, x2, y2, duration=0.35, steps=max(steps, 6))
+        dist = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
+        self._input_drag(x1, y1, x2, y2, duration=max(0.4, dist / 400),
+                         steps=max(steps, int(dist / 6), 10), ease_out=True)
 
     def _input_keys(self, combo):
         """press('return'), press('cmd+a'). Modifier flags are forwarded by

@@ -175,6 +175,10 @@ PY
   momentum; `swipe("left"/"right")` flips Home Screen pages; `long_press()`
   works (1.2 s enters jiggle mode on the Home Screen). Vertical swipes work
   here, unlike Mirroring.
+- **A row read through the translucent bar is not tappable.** iOS 26+ bars
+  are glass: OCR reads a row that sits under the navigation bar (top ~10% of
+  the screen) but a tap there hits the bar. If `scroll_until` stops with the
+  target near the top, `scroll("down", amount=0.15)` once, then tap.
 - **Home Screen labels are not tap targets** (iOS, not the harness): use
   `open_app("<bundle id>")`, or `tap_icon("Settings")` from
   `agent_helpers.py`, which taps the icon above the label. `tap_text` is

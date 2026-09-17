@@ -151,8 +151,9 @@ chrome needs its insets added to `CHROME_INSETS` or set as
 | Gesture | Result |
 |---|---|
 | click | tap (Home Screen labels are not targets; the icon above them is) |
-| touch-drag, 0.35 s / 14 steps | scrolls a list by the dragged distance |
-| touch-drag, 0.12 s / 6 steps | flick with momentum |
+| linear touch-drag (any speed tried, with or without a still hold before release) | scrolls, then keeps going: 1.8x the dragged distance (iOS keeps the release velocity) |
+| touch-drag with an ease-out path and the end point repeated before release | pans 0.9x the dragged distance (1:1 minus touch slop); this is what `scroll()` sends |
+| touch-drag, 0.12 s / 6 steps | flick with momentum (`swipe()`) |
 | horizontal drag, 0.3 s / 12 steps | flips Home Screen pages |
 | press and hold 1.2 s | long press (jiggle mode on the Home Screen) |
 | scroll-wheel events (pixel or line units, with or without trackpad phases, pointer over the window) | nothing, so `scroll()` is a touch-drag |
