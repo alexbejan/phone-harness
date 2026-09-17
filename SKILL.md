@@ -164,6 +164,16 @@ it and fall back to `find_text` / `tap_text`.
   error, paywall, empty), `consequential` (a Send, Pay, Delete, Sign in,
   Allow style control is visible), `dialog_kind`, `keyboard`, `modal`.
 
+- `jev_run(goal, texts=(), max_steps=12)`: Jev drives a bounded sub-task
+  by itself. Code builds a menu from the visible screen (tap each string,
+  type only the `texts` you pass, scroll, back); strings on the consent list
+  (send, pay, delete, sign in, allow, call, ...) are never offered; Jev picks
+  one move per step; each step is verified. Returns `status` (done, unsure,
+  blocked, stuck, max_steps, timeout), `final_screen`, and a `trace`. Start it
+  from inside the app (`open_app` first: Home Screen labels are not tap
+  targets). Measured 2026-09-17: Settings root to About in 4 steps and 33 s.
+  `unsure` or `blocked` means take over by hand.
+
 Rules: Jev is advisory. `gate: act` continues a batch, `caution` means look
 at a screenshot, `stop` means report. `consequential: True` is one more
 reason to get the user's go before the action, never a reason to skip it.
