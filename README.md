@@ -166,7 +166,30 @@ chrome needs its insets added to `CHROME_INSETS` or set as
 
 Home, App Switcher, Lock and Screenshot are `Controls` menu items (shift+cmd+H,
 cmd+L, shift+cmd+S); the backend presses the menu items through accessibility
-after activating Device Hub. The toolbar also has Capture Keyboard, Resize
+after activating Device Hub.
+
+**Cua Driver route (optional, focus-free).** Cua Driver (cua.ai/cua-driver, the
+daemon behind the `superset:computer` skill) posts input to a pid+window
+without bringing it to the front. When its daemon is running the backend routes
+**taps, scrolls and swipes** through it, so Device Hub no longer pops to the
+front on every action; the phone-screen rect the backend already computes is
+converted to Cua's window-local screenshot pixels. Measured 2026-09-17:
+
+| via Cua | result |
+|---|---|
+| `click` background | taps 3/3, Finder stays frontmost throughout |
+| `drag` (foreground; fronts the window for <1 ms then restores) | scrolls a list 0.96:1, focus stays put |
+| `press_key` background (single keys, shift) | reaches the phone, no focus steal |
+| `type_text` | AX insertion writes garbage — unused |
+| `hotkey` cmd+v / cmd+a | modifier not forwarded to the phone — unused |
+| `invoke_menu` Controls > Home | refused on Device Hub's SwiftUI menu — unused |
+
+So Cua drives only tap/scroll/swipe; typing, paste, cmd combos, the Controls
+menu and long press stay on the CGEvent + accessibility path (which fronts
+Device Hub). `devicehub.input` selects the route: `auto` (default: prefer Cua
+when the daemon answers), `cua` (require it), `cgevents` (never). The backend's
+`verify_with_cua()` is a second, independent read of the Mac side for when a
+step silently did nothing. The toolbar also has Capture Keyboard, Resize
 mode, Zoom Out/Fit/Actual/In, Open in New Window and More Actions (Stop
 Screen Sharing, Restart, Show in Finder, Rename, CarPlay Simulator, Collect
 sysdiagnose, Unpair). The Home/Screenshot/Rotate buttons under the phone are
@@ -193,7 +216,9 @@ location) are simulator-only and disabled for a physical device. The backend
 uses menu items via accessibility rather than shortcuts, because with a field
 focused on the phone the keystrokes would go to the phone.
 
-**Not measured / open**: Resize mode and the compact window (the backend
+**Not measured / open**: whether a longer Cua `press_key`/paste route could
+replace the CGEvent path for typing (today it cannot); Resize mode and the
+compact window (the backend
 expects the full window; the doctor reports the state), a second phone chrome,
 Wi-Fi pairing (the test phone is on a cable), whether sharing survives the
 phone locking (Device Hub's own docs say interaction stops when a camera or

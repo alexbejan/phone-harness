@@ -47,6 +47,8 @@ DEFAULTS = {
     "devicehub": {
         "udid": "",            # the phone Device Hub drives; empty = the one connected iPhone
         "inset": None,         # [l, t, r, b] screen-in-ring fractions for an unknown bezel
+        "input": "auto",       # taps/scrolls route: auto (prefer Cua Driver if its
+                               # daemon answers, else cgevents) | cua | cgevents
     },
 }
 

@@ -85,8 +85,16 @@ Mirroring is unavailable, or a device paired only for development.
   chrome) → Device Hub running → window → session state → phone screen located
   → native screenshot → OCR.
 - Keep the full Device Hub window (not the compact one) visible on the main
-  display at any zoom; input requires Device Hub to be frontmost, so expect it
-  to come forward on every action.
+  display at any zoom.
+- **Optional, recommended: Cua Driver** (cua.ai/cua-driver, the daemon behind
+  the `superset:computer` skill). When its daemon is running the backend sends
+  taps, scrolls and swipes through it, which does not bring Device Hub to the
+  front — no window popping while an agent works. It needs the same
+  Accessibility + Screen Recording grants. Nothing to configure:
+  `devicehub.input` defaults to `auto` (use Cua when present, else CGEvents);
+  pin it with `phone-harness config set devicehub.input cua|cgevents`. Typing,
+  paste and the Home/Lock menu still use the direct path and briefly front
+  Device Hub.
 
 ## Android
 

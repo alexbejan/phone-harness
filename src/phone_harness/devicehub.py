@@ -75,6 +75,7 @@ no `apps.current` (devicectl lists processes but not the foreground app), no
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import tempfile
 import time
@@ -110,6 +111,129 @@ _ASPECT_TOL = 0.04
 # Device Hub menu items used for hardware controls: (menu, item).
 _MENU = {"home": ("Controls", "Home"), "recents": ("Controls", "App Switcher"),
          "lock": ("Controls", "Lock"), "screenshot": ("Controls", "Screenshot")}
+
+
+# --- Cua Driver: an optional focus-free route for taps and scrolls ----------
+#
+# Cua Driver (cua.ai/cua-driver, the daemon behind the superset:computer skill)
+# posts input to a target pid+window WITHOUT bringing it to the front. Measured
+# 2026-09-17 against Device Hub: a background `click` taps the phone 3/3 with
+# Finder staying frontmost the whole time, and a `drag` scrolls a list 0.96:1
+# (Cua fronts the window for under a millisecond and restores focus, so no
+# window pops up). That is the whole reason to use it: the CGEvent path has to
+# bring Device Hub frontmost before every action, and this one does not.
+#
+# What Cua CANNOT do to the phone, measured and kept on the CGEvent/AX path:
+#   - type_text: AX insertion writes garbage into the iOS field.
+#   - cmd/ctrl/alt combos and paste (cmd+v): the modifier is not forwarded to
+#     the phone, so cmd+v types a bare 'v'.
+#   - invoke_menu (Home/App Switcher/Lock): refused on Device Hub's SwiftUI
+#     menu.
+#   - long press: `click` has no hold.
+# So this helper drives only tap, scroll, swipe and drag; the backend keeps
+# keys, paste and menus on the CGEvent+accessibility path.
+
+class CuaUnavailable(RuntimeError):
+    pass
+
+
+class _Cua:
+    """Thin wrapper over `cua-driver call <tool> <json>` for one Device Hub
+    window. Coordinates in take Mac screen points and are converted to Cua's
+    window-local screenshot pixels using the window's own screenshot scale."""
+
+    def __init__(self):
+        self._session = None
+        self._wid = None
+        self._win_w = None
+        self._scale = None            # Cua screenshot px per window point
+
+    @staticmethod
+    def binary():
+        return shutil.which("cua-driver")
+
+    @classmethod
+    def daemon_up(cls):
+        if not cls.binary():
+            return False
+        r = subprocess.run([cls.binary(), "status"], capture_output=True,
+                           text=True, timeout=10)
+        return r.returncode == 0 and "running" in (r.stdout + r.stderr).lower()
+
+    def _call(self, tool, timeout=20, **kw):
+        if not self.binary():
+            raise CuaUnavailable("cua-driver is not on PATH")
+        r = subprocess.run([self.binary(), "call", tool, json.dumps(kw)],
+                           capture_output=True, text=True, timeout=timeout)
+        out = (r.stdout or r.stderr).strip()
+        try:
+            data = json.loads(out)
+        except ValueError:
+            if r.returncode != 0:
+                raise CuaUnavailable(f"cua {tool}: {out[:200]}")
+            return {}
+        if isinstance(data, dict) and (data.get("error") or data.get("code")
+                                       in ("background_unavailable", "refused")):
+            raise CuaUnavailable(f"cua {tool} refused: {data.get('code') or data.get('error')}")
+        return data
+
+    def session(self):
+        if self._session is None:
+            self._session = f"phone-harness-devicehub-{os.getpid()}"
+            self._call("start_session", session=self._session)
+        return self._session
+
+    def _sync(self, win):
+        """Refresh the window id and screenshot scale if the window changed."""
+        if self._wid == win["id"] and self._win_w == win["w"] and self._scale:
+            return
+        st = self._call("get_window_state", pid=_pid(), window_id=win["id"],
+                        session=self.session(), max_elements=1)
+        sw = st.get("screenshot_width")
+        wb = st.get("window_bounds") or {}
+        if not sw or not wb.get("width"):
+            raise CuaUnavailable("cua get_window_state gave no screenshot scale")
+        self._wid = win["id"]
+        self._win_w = win["w"]
+        self._scale = sw / wb["width"]
+        self._win = wb
+
+    def _px(self, win, x, y):
+        self._sync(win)
+        return (x - self._win["x"]) * self._scale, (y - self._win["y"]) * self._scale
+
+    def tap(self, win, x, y):
+        px, py = self._px(win, x, y)
+        self._call("click", pid=_pid(), window_id=win["id"], x=px, y=py,
+                   delivery_mode="background", session=self.session())
+
+    def drag(self, win, x1, y1, x2, y2, duration_ms=700, steps=40):
+        self._sync(win)
+        fx, fy = self._px(win, x1, y1)
+        tx, ty = self._px(win, x2, y2)
+        # Cua refuses drag in background mode; foreground fronts the window for
+        # under a millisecond and restores focus, so the user's app stays put.
+        self._call("drag", pid=_pid(), window_id=win["id"], from_x=fx, from_y=fy,
+                   to_x=tx, to_y=ty, duration_ms=duration_ms, steps=steps,
+                   delivery_mode="foreground", session=self.session())
+
+    def window_state(self):
+        """(screenshot_png_path, [(role,label), ...]) — an independent read of
+        the Mac side for verify_with_cua()."""
+        import base64
+        win = find_window()
+        if win is None:
+            raise CuaUnavailable("no Device Hub window")
+        st = self._call("get_window_state", pid=_pid(), window_id=win["id"],
+                        session=self.session(), max_elements=60)
+        path = str(TMP / "devicehub-cua.png")
+        b64 = st.get("screenshot_png_b64")
+        if b64:
+            with open(path, "wb") as f:
+                f.write(base64.b64decode(b64))
+        labels = [(e.get("role"), e.get("label")) for e in st.get("elements", [])
+                  if e.get("label")]
+        return path, labels
 
 
 # --- devicectl --------------------------------------------------------------
@@ -445,6 +569,21 @@ class DeviceHub(Backend):
         self._geom_at = 0.0
         self._ttl = geometry_ttl
         self._info = None
+        # Input route. "cua" and "auto" (when the daemon answers) send taps,
+        # scrolls and swipes through Cua Driver, which does not steal focus;
+        # everything else stays on the CGEvent+AX path. "cgevents" never uses
+        # Cua. See the _Cua helper for what Cua can and cannot do to the phone.
+        want = str(config.get("devicehub.input") or "auto").lower()
+        self._cua = None
+        if want in ("cua", "auto"):
+            if _Cua.daemon_up():
+                self._cua = _Cua()
+            elif want == "cua":
+                raise RuntimeError(
+                    "devicehub.input=cua but the Cua Driver daemon is not "
+                    "running. Start it (`open -n -g -a CuaDriver --args serve`) "
+                    "or set `phone-harness config set devicehub.input auto`.")
+        self.input_route = "cua" if self._cua else "cgevents"
 
     @staticmethod
     def _pick_udid():
@@ -578,6 +717,12 @@ class DeviceHub(Backend):
 
     def _input_tap(self, x, y):
         self._inside(x, y)
+        if self._cua:
+            try:
+                self._cua.tap(self._screen_geometry()["window"], x, y)
+                return
+            except CuaUnavailable:
+                self._cua = None      # daemon went away mid-run; fall through
         activate()
         self._mouse(Quartz.kCGEventMouseMoved, x, y)
         time.sleep(0.08)
@@ -595,7 +740,10 @@ class DeviceHub(Backend):
         self._mouse(Quartz.kCGEventLeftMouseUp, x, y)
 
     def _input_drag(self, x1, y1, x2, y2, duration=0.35, steps=14, ease_out=False):
-        """Touch-drag. Linear by default, which is what a swipe wants: iOS
+        """Touch-drag. When the Cua route is active it drives the drag (which
+        pans a list 0.96:1 without stealing focus); otherwise CGEvents.
+
+        Linear by default, which is what a swipe wants: iOS
         derives momentum from the finger's speed at release, so a linear
         drag keeps flicking after the finger lifts. `ease_out=True` slows
         the path quadratically into the end point and repeats the end point
@@ -606,6 +754,14 @@ class DeviceHub(Backend):
         0.90x (1:1 minus touch slop)."""
         self._inside(x1, y1)
         self._inside(x2, y2)
+        if self._cua:
+            try:
+                self._cua.drag(self._screen_geometry()["window"], x1, y1, x2, y2,
+                               duration_ms=int(max(duration, 0.4) * 1000),
+                               steps=max(steps, 30))
+                return
+            except CuaUnavailable:
+                self._cua = None
         activate()
         self._mouse(Quartz.kCGEventMouseMoved, x1, y1)
         time.sleep(0.08)
@@ -834,6 +990,25 @@ class DeviceHub(Backend):
                                "Accessibility permission.")
         raised = a_depth is not None and (b_depth is None or a_depth < b_depth)
         return {"raised": bool(raised), "stole_focus": bool(a_front and not b_front)}
+
+    # --- independent verification via Cua Driver ---
+
+    def verify_with_cua(self):
+        """A second, independent read of the Mac side through Cua Driver, for
+        when a step silently did nothing and you have the daemon. Returns
+        {screenshot, session_labels, agrees}: a Cua screenshot of the Device
+        Hub window (the whole Mac window, not the phone framebuffer), the
+        accessibility labels Cua sees, and whether Cua's view of the sharing
+        state agrees with the backend's. Raises CuaUnavailable without the
+        daemon."""
+        cua = self._cua or _Cua()
+        path, labels = cua.window_state()
+        flat = " ".join(l for _, l in labels if l)
+        cua_sharing = "View Screen" not in flat and "Unavailable" not in flat
+        state = self._session_state()
+        return {"screenshot": path, "session_labels": labels,
+                "backend_state": state,
+                "agrees": cua_sharing == (state == "ready")}
 
     # --- escape hatch: devicectl ---
 
