@@ -130,9 +130,9 @@ class PhoneSurface:
         for i, t in enumerate(texts):
             acts.append({"id": f"type{i}", "kind": "type", "line": f"[type{i}] type {t!r} into the focused field",
                          "call": ("type", t)})
-        acts.append({"id": "scroll_down", "kind": "scroll", "line": "[scroll_down] scroll down to reveal items not visible yet (use when the goal names something not on screen)",
+        acts.append({"id": "scroll_down", "kind": "scroll", "line": "[scroll_down] scroll down to see items further down the list",
                      "call": ("scroll", "down")})
-        acts.append({"id": "scroll_up", "kind": "scroll", "line": "[scroll_up] scroll up", "call": ("scroll", "up")})
+        acts.append({"id": "scroll_up", "kind": "scroll", "line": "[scroll_up] scroll up to see items further up the list", "call": ("scroll", "up")})
         if self.h.supports("nav.back"):
             acts.append({"id": "back", "kind": "back", "line": "[back] go back to the previous screen", "call": ("back",)})
         return acts
@@ -140,14 +140,39 @@ class PhoneSurface:
     def execute(self, action):
         call = action["call"]
         if call[0] == "tap":
-            return self.h.tap(call[1], call[2])
+            return self._tap_clear_of_bars(call[1], call[2], action)
         if call[0] == "type":
             return self.h.type_text(call[1])
         if call[0] == "scroll":
-            return self.h.scroll(call[1], amount=0.5)
+            return self.h.scroll(call[1], amount=0.35)
         if call[0] == "back":
             return self.h.back()
         raise RuntimeError(f"unknown action {call}")
+
+    def _tap_clear_of_bars(self, x, y, action):
+        """Rows under the translucent navigation bar (top ~12%) or the tab and
+        search bars (bottom ~20%; measured 2026-09-17: a tap at 86% height on
+        the Settings root did nothing) read fine but do not take a tap. Nudge
+        the list in small steps until the row sits inside the band, re-find it
+        by its text each time, then tap. Bounded: three nudges, then tap anyway."""
+        import time
+        win = self.h.screen_info()["window"]
+        lo, hi = 0.12, 0.80
+        text = action["line"].split("tap ", 1)[1].strip("'\"") if "tap " in action["line"] else None
+        frac = (y - win["y"]) / win["h"]
+        for _ in range(3):
+            if lo <= frac <= hi or not text:
+                break
+            # scroll() takes the content direction: "down" shows what is further
+            # down, so the list moves up and a bottom row rises (0.86 -> 0.80 per 0.15).
+            self.h.scroll("down" if frac > hi else "up", amount=0.12)
+            time.sleep(0.9)
+            hits = self.h.find_text(text, exact=True) or self.h.find_text(text)
+            if not hits:
+                break
+            x, y = hits[0]["x"], hits[0]["y"]
+            frac = (y - win["y"]) / win["h"]
+        return self.h.tap(x, y)
 
     def settle(self):
         import time

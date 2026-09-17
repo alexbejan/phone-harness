@@ -144,6 +144,13 @@ PY
 
 ## Judging with Jev (optional)
 
+**The pattern: you hold the plan; Jev picks and checks one step at a time.**
+Decide the next step yourself ("now I need the General row"), ask Jev which
+visible string that is with `pick_text(..., tap=True)`, then confirm with
+`judge_verify`. Do not hand Jev a multi-step goal: it has no memory and reads
+literally. Measured 2026-09-17: Settings root to About this way landed first
+time with every gate `act`; the autonomous `jev_run` below needed six tries.
+
 When `phone-harness config get jev.enabled` is `true`, three helpers send the
 visible screen text (OCR strings or tree labels, never screenshots or
 coordinates) to TypeSafe Jev through jevkit and return a typed verdict with
@@ -164,15 +171,19 @@ it and fall back to `find_text` / `tap_text`.
   error, paywall, empty), `consequential` (a Send, Pay, Delete, Sign in,
   Allow style control is visible), `dialog_kind`, `keyboard`, `modal`.
 
-- `jev_run(goal, texts=(), max_steps=12)`: Jev drives a bounded sub-task
-  by itself. Code builds a menu from the visible screen (tap each string,
+- `jev_run(goal, texts=(), max_steps=12)` (opt-in, last resort): Jev drives
+  one trivially bounded step by itself, such as "scroll until Wi-Fi is visible". Code builds a menu from the visible screen (tap each string,
   type only the `texts` you pass, scroll, back); strings on the consent list
   (send, pay, delete, sign in, allow, call, ...) are never offered; Jev picks
   one move per step; each step is verified. Returns `status` (done, unsure,
   blocked, stuck, max_steps, timeout), `final_screen`, and a `trace`. Start it
   from inside the app (`open_app` first: Home Screen labels are not tap
-  targets). Measured 2026-09-17: Settings root to About in 4 steps and 33 s.
-  `unsure` or `blocked` means take over by hand.
+  targets). Rows in the bottom ~20% or top ~12% of the phone screen are
+  nudged into the middle before a tap (measured 2026-09-17: a tap at 86%
+  height on the Settings root does nothing). Measured 2026-09-18: Settings
+  root to About in 3 moves and 33 s; `likely_done` means the goal reads as
+  met but no confident next move remains (common with OCR noise such as
+  "¡OS Version"). `unsure` or `blocked` means take over by hand.
 
 Rules: Jev is advisory. `gate: act` continues a batch, `caution` means look
 at a screenshot, `stop` means report. `consequential: True` is one more
