@@ -103,3 +103,66 @@ def classify_screen(boxes=None):
     r = j.classify(_cands(boxes))
     r.pop("raw", None)
     return r
+
+
+# --- autonomous runs ---------------------------------------------------------
+
+class PhoneSurface:
+    """jevkit.runner Surface over this phone. Menu: tap each visible string,
+    type each allowed text into the focused field, scroll down/up, back."""
+
+    def __init__(self, settle_s=1.2):
+        from . import helpers
+        self.h = helpers
+        self.settle_s = settle_s
+
+    def observe(self):
+        cands = _cands(None)
+        title = self.h.current_app() if self.h.supports("apps.current") else None
+        return cands, {"window_title": title}
+
+    def actions(self, cands, texts):
+        acts = []
+        for c in cands:
+            base = c["line"].split("] ", 1)[1]
+            acts.append({"id": f"tap_{c['id']}", "kind": "tap", "line": f"[tap_{c['id']}] tap {base}",
+                         "call": ("tap", c["x"], c["y"])})
+        for i, t in enumerate(texts):
+            acts.append({"id": f"type{i}", "kind": "type", "line": f"[type{i}] type {t!r} into the focused field",
+                         "call": ("type", t)})
+        acts.append({"id": "scroll_down", "kind": "scroll", "line": "[scroll_down] scroll down to reveal items not visible yet (use when the goal names something not on screen)",
+                     "call": ("scroll", "down")})
+        acts.append({"id": "scroll_up", "kind": "scroll", "line": "[scroll_up] scroll up", "call": ("scroll", "up")})
+        if self.h.supports("nav.back"):
+            acts.append({"id": "back", "kind": "back", "line": "[back] go back to the previous screen", "call": ("back",)})
+        return acts
+
+    def execute(self, action):
+        call = action["call"]
+        if call[0] == "tap":
+            return self.h.tap(call[1], call[2])
+        if call[0] == "type":
+            return self.h.type_text(call[1])
+        if call[0] == "scroll":
+            return self.h.scroll(call[1], amount=0.5)
+        if call[0] == "back":
+            return self.h.back()
+        raise RuntimeError(f"unknown action {call}")
+
+    def settle(self):
+        import time
+        time.sleep(self.settle_s)
+
+
+def jev_run(goal, texts=(), max_steps=12, max_seconds=180):
+    """Let Jev drive a bounded task on the phone toward `goal`. Jev only
+    picks from moves code built from the visible screen; labels on the
+    consent list (send, pay, delete, sign in, allow, call, ...) are never
+    offered. Text it may type comes only from `texts`. Stops on done, unsure,
+    an auth/error/consequential screen, a stuck screen, or the limits.
+    Returns {status, reason, steps, final_screen, trace, trace_path}."""
+    j, why = _judge()
+    if j is None:
+        return {"status": "unavailable", "reason": why}
+    from jevkit.runner import Runner
+    return Runner(PhoneSurface(), judge=j, max_steps=max_steps, max_seconds=max_seconds).run(goal, texts=texts)
