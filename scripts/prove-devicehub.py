@@ -22,7 +22,23 @@ check("scroll_until finds General", bool(hit))
 win = info["window"]
 if hit and (hit["y"] - win["y"]) / win["h"] < 0.12:
     scroll("down", amount=0.15); wait(1.0)
+before = ocr()
 tap_text("General"); check("tap_text General opens it", bool(wait_for_text("About", timeout=5)))
+# Optional Jev judgements (jev.enabled). Skipped, not failed, when off.
+avail, why = jev_available()
+print("jev:", "on" if avail else f"off ({why})")
+if avail:
+    v = judge_verify("the General settings page is open (About, Software Update rows visible)", before)
+    check(f"judge_verify sees General open (p={v.get('p_landed')}, gate={v.get('gate')})",
+          v.get("landed") is True and not v.get("unavailable"))
+    k = classify_screen()
+    check(f"classify_screen kind={k.get('kind')} consequential={k.get('consequential')}",
+          k.get("kind") in ("normal", "empty") and not k.get("unavailable"))
+    pk = pick_text("the row that shows the phone's software version and model")
+    check(f"pick_text -> {pk['box'] and pk['box']['text']!r} (gate={pk['gate']})",
+          bool(pk["box"]) and pk["box"]["text"] == "About")
+    pn = pick_text("a Send Message button")
+    check(f"pick_text absent target -> none (gate={pn['gate']})", pn["box"] is None and pn["gate"] == "stop")
 home(); check("home()", bool(wait_for_text("Search", timeout=5)) or bool(find_text("Settings")))
 # Messages opens into the last thread; the compose field is the bottom row of
 # the phone screen (the placeholder "Message" is hidden whenever a draft is in

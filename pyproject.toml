@@ -23,6 +23,11 @@ dependencies = [
     "pyobjc-framework-ApplicationServices; sys_platform == 'darwin'",
 ]
 
+[project.optional-dependencies]
+# Optional Jev judgements (judge_verify / pick_text / classify_screen). Local
+# checkout at ~/Documents/jevkit: `uv pip install -e ~/Documents/jevkit`.
+jev = ["jevkit>=0.1"]
+
 [project.urls]
 Homepage = "https://phone-harness.com"
 Repository = "https://github.com/ShawnPana/phone-harness"

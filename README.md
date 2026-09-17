@@ -83,6 +83,12 @@ pastes.
 Same helpers on all three. `phone-harness config set platform
 ios|devicehub|android` picks the default.
 
+**Jev judgements (optional, off by default).** With `jev.enabled` on, three
+helpers (`judge_verify`, `pick_text`, `classify_screen`) send the visible
+screen text to TypeSafe Jev via jevkit (a local checkout at `~/Documents/jevkit`)
+and return typed verdicts with a confidence gate. See SKILL.md, "Judging
+with Jev".
+
 ## How Device Hub works
 
 Due diligence and measurements behind the `devicehub` backend

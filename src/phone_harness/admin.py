@@ -32,12 +32,30 @@ def run_doctor(platform=None):
         _doctor_devicehub()
     else:
         _doctor_ios()
+    _doctor_jev()
     ok = not _failures
     print("\nall clear" if ok else "\nfix the FAILs above, then re-run")
     return 0 if ok else 1
 
 
 # --- iPhone: pyobjc -> permissions -> Mirroring -> capture -> OCR -----------
+
+def _doctor_jev():
+    from . import config
+    if not config.get("jev.enabled"):
+        _check("Jev judgements: off (phone-harness config set jev.enabled true to opt in; "
+               "screen text then leaves the machine)", True, fatal=False)
+        return
+    try:
+        from jevkit import keys, config as jc
+    except ImportError:
+        _check("Jev judgements: jev.enabled but jevkit not installed", False,
+               "uv pip install -e ~/Documents/jevkit into this venv", fatal=False)
+        return
+    src = keys.source()
+    _check(f"Jev judgements: on, model {jc.MODEL}, key from {src or 'nowhere'}", bool(src),
+           "add Keychain item TYPESAFE_API_KEY or set the env var", fatal=False)
+
 
 def _doctor_ios():
     try:

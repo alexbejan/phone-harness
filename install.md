@@ -126,6 +126,16 @@ adb.
 
 `phone-harness config set telemetry false` turns off anonymous usage telemetry.
 
+## Jev judgements (optional)
+
+```bash
+# jevkit (TypeSafe Jev as verify / pick / classify) into this venv
+uv pip install --python .venv/bin/python -e ~/Documents/jevkit
+# key: Keychain item TYPESAFE_API_KEY (see ~/Documents/jevkit/README.md)
+phone-harness config set jev.enabled true     # opt in: screen text then leaves the machine
+phone-harness --doctor                        # the last line reports the Jev state
+```
+
 ## If It Fails
 
 `--doctor` walks the ladder in order and names the missing step. Common ones:
