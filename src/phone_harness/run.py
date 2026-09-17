@@ -13,10 +13,10 @@ USAGE = """Usage:
   PY
 
 Commands:
-  phone-harness --doctor [ios|android]   diagnose the phone the helpers would drive
+  phone-harness --doctor [ios|devicehub|android]   diagnose the phone the helpers would drive
   phone-harness skill       print the phone-harness skill text
   phone-harness android ... pair/connect/choose an Android phone
-  phone-harness config ...  settings: `config set platform android`
+  phone-harness config ...  settings: `config set platform devicehub`
 """
 
 

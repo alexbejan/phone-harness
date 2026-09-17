@@ -129,7 +129,8 @@ class Backend:
 def connect(platform=None, **kw):
     """Build a backend. Explicit argument, else PHONE_HARNESS_PLATFORM, else
     `platform` in the config file (`phone-harness config set platform …`),
-    else ios.
+    else ios. Values: ios (iPhone Mirroring), devicehub (Xcode 27 Device
+    Hub), android.
 
     Returns an object rather than installing a module global, so a script can
     hold two devices at once instead of being limited to one per process.
@@ -145,4 +146,8 @@ def connect(platform=None, **kw):
         return importlib.import_module(".ios", __package__).IPhone(**kw)
     if platform == "android":
         return importlib.import_module(".android", __package__).Android(**kw)
+    if platform == "devicehub":
+        if sys.platform != "darwin":
+            raise RuntimeError("Device Hub control needs macOS with Xcode 27")
+        return importlib.import_module(".devicehub", __package__).DeviceHub(**kw)
     raise ValueError(f"unknown platform {platform!r}")

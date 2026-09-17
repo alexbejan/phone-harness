@@ -28,6 +28,8 @@ def run_doctor(platform=None):
     _failures.clear()
     if platform == "android":
         _doctor_android()
+    elif platform == "devicehub":
+        _doctor_devicehub()
     else:
         _doctor_ios()
     ok = not _failures
@@ -95,6 +97,95 @@ def _doctor_ios():
     _check(f"session state: {state}", state == "ready",
            "an interstitial is up (iPhone in Use / Connect / Mac Locked) — "
            "clear it on the Mac; lock the iPhone if it says in use", fatal=False)
+
+
+# --- Device Hub: pyobjc -> permissions -> Xcode 27 -> devicectl -> phone ->
+# --- Device Hub window -> sharing -> geometry -> native screenshot -> OCR ----
+
+def _doctor_devicehub():
+    try:
+        import Quartz, Vision, AppKit  # noqa: F401
+        _check("pyobjc frameworks (Quartz, Vision, AppKit)", True)
+    except ImportError as e:
+        _check("pyobjc frameworks", False,
+               f"pip install pyobjc-framework-Quartz pyobjc-framework-Vision "
+               f"pyobjc-framework-Cocoa ({e})")
+        return
+    from ApplicationServices import AXIsProcessTrusted
+    _check("Accessibility permission (taps, keystrokes, menus)", AXIsProcessTrusted(),
+           "System Settings > Privacy & Security > Accessibility: enable your terminal")
+    import Quartz as Q
+    _check("Screen Recording permission (locating the phone in the window)",
+           bool(Q.CGPreflightScreenCaptureAccess()),
+           "System Settings > Privacy & Security > Screen Recording: enable your terminal")
+
+    from . import devicehub as dh
+    _check(f"{dh.APP_NAME} installed ({dh.APP_PATH})", Path(dh.APP_PATH).exists(),
+           "needs Xcode 27; `xcode-select -p` must point at it")
+    try:
+        ver = subprocess.run(["xcrun", "devicectl", "--version"], capture_output=True,
+                             text=True, timeout=20).stdout.strip()
+        _check(f"devicectl works ({ver})", bool(ver), "xcrun devicectl --version failed")
+    except Exception as e:  # noqa: BLE001
+        _check("devicectl works", False, str(e)[:120])
+        return
+    try:
+        phone = dh.DeviceHub()
+    except RuntimeError as e:
+        _check("a phone is connected to CoreDevice", False, str(e)[:200])
+        return
+    info = phone.info()
+    _check(f"phone: {info['name']} ({info['model']}, iOS {info['os']}, "
+           f"{info['transport']}, tunnel {info['tunnel']}) {phone.udid}",
+           info["tunnel"] == "connected", "plug the cable in / pair it in Device Hub")
+    _check(f"Developer Mode: {info['developer_mode']}", info["developer_mode"] == "enabled",
+           "Settings > Privacy & Security > Developer Mode on the phone, then relaunch Device Hub")
+    _check(f"developer disk image services: {info['ddi']}", bool(info["ddi"]),
+           "wait for Xcode to prepare the device", fatal=False)
+    disp = phone.display()
+    _check(f"display {disp['w']}x{disp['h']} px, chrome {disp['chrome']!r}", True)
+    if disp["chrome"] not in dh.CHROME_INSETS:
+        from . import config
+        _check("screen inset known for this chrome", bool(config.get("devicehub.inset")),
+               "measure the screen inside the outline ring once and `config set "
+               "devicehub.inset '[l,t,r,b]'`")
+
+    _check(f"{dh.APP_NAME} running", dh.running_app() is not None,
+           "open it: Xcode > Open Developer Tool > Device Hub")
+    if dh.running_app() is None:
+        return
+    win = dh.find_window()
+    _check(f"window found: {win['title']!r}" if win else "window found", win is not None,
+           "Device Hub has no window")
+    if not win:
+        return
+    state = phone.send("session.state")
+    hints = {"not-selected": "select the phone in the sidebar (the harness does this itself on first use)",
+             "not-sharing": "click View Screen (the harness does this itself on first use)",
+             "unavailable": "Screen Sharing Unavailable: quit and relaunch Device Hub, then View Screen",
+             "locked": "unlock the phone", "no-device": "cable / pairing"}
+    _check(f"session state: {state}", state == "ready", hints.get(state, ""))
+    if state != "ready":
+        return
+    g = phone._screen_geometry(force=True)
+    _check(f"phone screen located at ({g['x']:.0f}, {g['y']:.0f}) {g['w']:.0f}x{g['h']:.0f} pt "
+           f"(ring {g['ring'][2]}x{g['ring'][3]} px, aspect {g['ring'][2]/g['ring'][3]:.3f})", True)
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        path = f.name
+    try:
+        p, b = phone.send("screen.capture", path=path)
+        size = os.path.getsize(p)
+        _check(f"native device screenshot works ({size} bytes)", size > 20_000,
+               "devicectl capture screenshot failed")
+        from . import ocr
+        n = len(ocr.recognize(p, b))
+        _check(f"Vision OCR works ({n} text boxes, mapped to Mac screen points)", n > 0,
+               "no text recognised; is the phone screen on?", fatal=False)
+    finally:
+        if os.path.exists(path):
+            os.unlink(path)
+    front = dh.is_frontmost()
+    _check(f"Device Hub frontmost: {front}", True)
 
 
 # --- Android: adb -> a phone -> authorised -> awake -> tree ------------------

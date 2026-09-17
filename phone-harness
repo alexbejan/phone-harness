@@ -1,4 +1,8 @@
 #!/bin/sh
 # Dev launcher: run the working tree without installing.
+# Prefers the checkout's own venv (the system python3 on a Mac is often 3.9,
+# too old for the package); falls back to whatever python3 is on PATH.
 DIR="$(cd "$(dirname "$0")" && pwd)"
-PYTHONPATH="$DIR/src" exec python3 -m phone_harness.run "$@"
+PY="$DIR/.venv/bin/python"
+[ -x "$PY" ] || PY=python3
+PYTHONPATH="$DIR/src" exec "$PY" -m phone_harness.run "$@"

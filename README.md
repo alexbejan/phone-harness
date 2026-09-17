@@ -3,10 +3,16 @@
 **[phone-harness](https://phone-harness.com?utm_source=github&utm_medium=readme&utm_campaign=header)** · let your agent control your phone.
 
 Connect Claude Code, Codex, or any agent to your real phone. **iPhone** through
-the Mac's iPhone Mirroring window, **Android** over adb from macOS, Linux or
-Windows. No jailbreak, no
-Xcode, nothing installed on the phone. The agent sees the screen, taps, types,
-and reads the result.
+the Mac's iPhone Mirroring window or through **Xcode 27's Device Hub** (this
+fork), **Android** over adb from macOS, Linux or Windows. No jailbreak, nothing
+installed on the phone. The agent sees the screen, taps, types, and reads the
+result.
+
+> **This fork** (`alexbejan/phone-harness`, branch `devicehub`) adds the
+> `devicehub` platform: the same helpers drive a paired iPhone through Xcode
+> 27's Device Hub where iPhone Mirroring is unavailable (Romania, a test phone
+> with no Apple ID). Telemetry is off by default here. See
+> [How Device Hub works](#how-device-hub-works).
 
 ```
   ● agent: wants to open Weather
@@ -66,12 +72,138 @@ HID-level events for taps, swipes, and typing.
 accessibility tree is the text source, `input` is the hands. Works over USB or
 Wi‑Fi, no window needed.
 
-Same helpers on both. `phone-harness config set platform ios|android` picks
-the default.
+**iPhone via Device Hub.** Xcode 27's Device Hub shares a paired phone's
+screen and forwards clicks and keystrokes to it. The harness reads the screen
+with `xcrun devicectl device capture screenshot` (the device's own framebuffer,
+native resolution, no window needed), OCRs that, maps device pixels onto the
+Mac points where Device Hub draws them, and posts CGEvents there. `devicectl`
+also launches apps by bundle id and sets the device pasteboard for exact
+pastes.
+
+Same helpers on all three. `phone-harness config set platform
+ios|devicehub|android` picks the default.
+
+## How Device Hub works
+
+Due diligence and measurements behind the `devicehub` backend
+(`src/phone_harness/devicehub.py`), done 2026-09-17 on a Mac mini (macOS 27.0,
+Xcode 27.0 27A266a, Device Hub 27.0, devicectl 642.16) with an iPhone 11 Pro on
+iOS 27.0 paired by cable, Developer Mode on, no Apple ID. Sources: Apple's
+"Device Hub", "Managing your simulated and physical devices in Device Hub",
+"Interacting with your app in Device Hub" and "Capturing screenshots and
+videos from devices" pages, the WWDC26 sessions 258 and 260, the Device Hub
+bundle and menus, community reports (tddworks/baguette#77, JaviSoto/
+device-hub-ios, ipbtools/ipb).
+
+**What Device Hub is.** `/Applications/Xcode.app/Contents/Applications/
+DeviceHub.app`, bundle id `com.apple.dt.Devices`, process name `DeviceHub`
+(LaunchServices reports its pid as -1, so the backend reads the pid from
+`pgrep`). It replaces Simulator.app and manages paired physical devices. The
+window title is the selected device's name; the canvas shows the shared
+screen inside a bezel ("chrome"), the sidebar lists devices, the inspector is
+on the right. Screen sharing of physical devices needs iOS 27+, Developer Mode
+and pairing; "you can interact with the view in Device Hub and the physical
+device simultaneously". Camera/microphone apps on the phone stop the sharing.
+There is no AppleScript dictionary, the only URL scheme is `devices:`, and
+there are no scripting hooks; `devicectl` is Apple's stated automation route
+("a command line tool based on the same underlying technology as Device Hub").
+
+**Phone side.** With sharing on, the developer disk image runs
+`dtremotedisplayd` (screen stream), `dtuhidd` ("DT Remote service for
+receiving and posting UniversalHID events": it posts the touches Device Hub
+sends), `dtscreencaptured` (screenshots), `dtpasteboardd` (clipboard sync). The
+community reports about `dtuhidd` ignoring another tool's touches once Device
+Hub has attached ("whichever client connects first wins") are about
+simulators; on this physical phone a direct CoreDevice HID client
+(`ipbtools/ipb`, built from source) could press Home but its taps never
+landed, with Device Hub sharing, with sharing stopped, and with Device Hub
+quit. So there is no window-free input route today; the backend does not use
+ipb.
+
+**Eyes: native screenshots.** `xcrun devicectl device capture screenshot
+--device <udid> --destination x.png` returns the framebuffer (1125x2436 px on
+the 11 Pro) in 0.7-1.0 s, regardless of how small the phone is drawn on the
+Mac, so OCR reads at native resolution. Device Hub's own Screenshot button
+saves to the Desktop and was not needed. `devicectl device info displays`
+reports the display size and the chrome id (`com.apple.dt.devicekit.chrome.
+phone2`), `info lockState` the passcode state, `info details` Developer Mode
+and the tunnel state, `info apps --include-all-apps` the app list.
+
+**Geometry: where the phone is drawn.** The shared screen is a custom-drawn
+surface with no accessibility children, and the window size and zoom vary
+(Zoom In/Out, Zoom to Fit, Actual Size, Resize mode, compact window). The
+backend re-derives the screen rect on every call (cached 0.8 s): it captures
+the window (`screencapture -l <id>`), takes the canvas region from the
+accessibility tree (below the toolbar, between the sidebar and inspector
+splitters), finds the largest connected blob of non-background pixels (the
+chrome: a thin light outline ring, a black bezel, the screen), checks the
+blob's aspect against the chrome's known ring aspect (0.506-0.510 measured
+from Zoom Out to Zoom to Fit) and insets it by fixed fractions (screen =
+ring inset by 42/536, 38/1052, 43/536, 37/1052). Verified by OCR-ing the Mac
+window and the native screenshot independently: the two agree within 2 pt.
+Labels under the phone ("AI Agent Phone / iOS 27.0 / View Screen") and the
+floating Home/Screenshot/Rotate toolbar are separate, smaller blobs. Another
+chrome needs its insets added to `CHROME_INSETS` or set as
+`devicehub.inset`.
+
+**Hands: CGEvents at the mapped point, Device Hub frontmost.** Measured:
+
+| Gesture | Result |
+|---|---|
+| click | tap (Home Screen labels are not targets; the icon above them is) |
+| touch-drag, 0.35 s / 14 steps | scrolls a list by the dragged distance |
+| touch-drag, 0.12 s / 6 steps | flick with momentum |
+| horizontal drag, 0.3 s / 12 steps | flips Home Screen pages |
+| press and hold 1.2 s | long press (jiggle mode on the Home Screen) |
+| scroll-wheel events (pixel or line units, with or without trackpad phases, pointer over the window) | nothing, so `scroll()` is a touch-drag |
+| keystrokes with Device Hub frontmost and a field focused | typed; **the "Capture Keyboard" toggle is not needed** |
+| keystrokes with another Mac app frontmost | nothing |
+| modifier combos (cmd+a, cmd+v, delete) | forwarded, unlike Mirroring which drops the flag mask |
+| cmd+v after `devicectl device pasteboard copy` (stdin) | pastes the exact Unicode text |
+| cmd+v after `pbcopy` on the Mac | also pastes (clipboard is synced), but devicectl is deterministic |
+| SkyLight event records to the Device Hub window (the no-focus trick from background.py) | land, but Device Hub becomes frontmost anyway, so there is no background mode |
+
+Home, App Switcher, Lock and Screenshot are `Controls` menu items (shift+cmd+H,
+cmd+L, shift+cmd+S); the backend presses the menu items through accessibility
+after activating Device Hub. The toolbar also has Capture Keyboard, Resize
+mode, Zoom Out/Fit/Actual/In, Open in New Window and More Actions (Stop
+Screen Sharing, Restart, Show in Finder, Rename, CarPlay Simulator, Collect
+sysdiagnose, Unpair). The Home/Screenshot/Rotate buttons under the phone are
+only in the accessibility tree while the pointer hovers the canvas.
+
+**Session states** (`connection_state()`): `not-running`, `no-device` (not
+connected to CoreDevice), `no-window`, `not-selected` (window title is another
+device), `unavailable` ("Screen Sharing Unavailable": Device Hub is stale, for
+example after Developer Mode was enabled while it ran; quit and relaunch it),
+`not-sharing` (the "View Screen" button is up; an AXButton whose *description*
+carries the text), `locked`, `ready`. `ensure_device()` selects the phone's
+sidebar row and presses View Screen itself (sharing came back in a few seconds
+after Stop Screen Sharing and after a relaunch); launching, relaunching,
+pairing and unlocking stay with the user.
+
+**Keyboard shortcuts** (from the app's menus): File: New Tab cmd+T, New Window
+shift+cmd+N, Close cmd+W. View: Hide Sidebar shift+cmd+L, Inspectors
+alt+cmd+1/2/3, Zoom In cmd++, Zoom Out cmd+-, Zoom to Fit cmd+0, Physical Size
+cmd+1. Device: Toggle Appearance shift+cmd+A, Toggle Software Keyboard
+alt+cmd+K, Increase/Decrease Text Size alt+cmd+plus/minus. Controls: Home
+shift+cmd+H, Lock cmd+L, Siri alt+shift+cmd+H, Screenshot shift+cmd+S, Record
+Screen shift+cmd+R. Most Device menu items (appearance, battery, Face ID,
+location) are simulator-only and disabled for a physical device. The backend
+uses menu items via accessibility rather than shortcuts, because with a field
+focused on the phone the keystrokes would go to the phone.
+
+**Not measured / open**: Resize mode and the compact window (the backend
+expects the full window; the doctor reports the state), a second phone chrome,
+Wi-Fi pairing (the test phone is on a cable), whether sharing survives the
+phone locking (Device Hub's own docs say interaction stops when a camera or
+microphone app comes up on the phone).
 
 ## Limits
 
 - Unlocking the iPhone pauses mirroring; a PIN-locked Android needs the user.
+- Device Hub: input needs Device Hub frontmost (no background mode); one
+  phone chrome is calibrated (`phone2`, the notch iPhones); Home Screen labels
+  are not tap targets (launch by bundle id instead).
 - OCR sees text, not icons. Unlabeled controls need a screenshot and a
   vision-capable model.
 - No multi-touch, no camera or Face ID flows. DRM video renders black.

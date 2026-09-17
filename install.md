@@ -1,16 +1,21 @@
 # phone-harness install
 
 phone-harness drives a real phone from a Mac (first-run flow for agents:
-`onboarding.md`; day-to-day usage: `SKILL.md`). It works with an **iPhone** through the macOS
-iPhone Mirroring app, or an **Android** over adb (USB or Wi‑Fi). Same helpers
-either way; you choose a default and can switch per call.
+`onboarding.md`; day-to-day usage: `SKILL.md`). It works with an **iPhone**
+through the macOS iPhone Mirroring app or through **Xcode 27's Device Hub**
+(`devicehub`), or an **Android** over adb (USB or Wi‑Fi). Same helpers either
+way; you choose a default and can switch per call.
 
 ## Common
 
 ```bash
-git clone https://github.com/ShawnPana/phone-harness ~/.phone-harness   # canonical home
+git clone https://github.com/alexbejan/phone-harness ~/Documents/phone-harness   # this fork
+ln -s ~/Documents/phone-harness ~/.phone-harness                                # canonical home
 cd ~/.phone-harness
-pip install -e .                      # the global `phone-harness` command (pulls pyobjc on macOS only)
+# Python 3.10+ with pyobjc. A Mac's default python3 is often Xcode's 3.9, so
+# give the checkout its own interpreter (uv or Homebrew python3.12):
+uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e .
+ln -sf ~/.phone-harness/.venv/bin/phone-harness ~/.local/bin/phone-harness  # on PATH
 
 # register as an agent skill so Claude Code / Codex reach for it automatically
 mkdir -p ~/.claude/skills/phone-harness
@@ -23,11 +28,15 @@ phone-harness skill > "${CODEX_HOME:-$HOME/.codex}/skills/phone-harness/SKILL.md
   **Android works on macOS, Linux and Windows** and is the default off a Mac.
   Only the CLI? `pip install phone-harness` works too; the
   checkout is what makes the harness editable (`agent-workspace/agent_helpers.py`).
-- The default phone is `phone-harness config set platform ios|android`;
+- The default phone is `phone-harness config set platform ios|devicehub|android`;
   `phone-harness config` shows every setting and where it came from;
   `PHONE_HARNESS_PLATFORM=android phone-harness …` overrides for one call.
-- `phone-harness --doctor` checks the default phone; `--doctor ios` or
-  `--doctor android` checks the other.
+- `phone-harness --doctor` checks the default phone; `--doctor ios`,
+  `--doctor devicehub` or `--doctor android` checks another.
+- Telemetry is **off by default in this fork** (`telemetry: false` in
+  `config.py`); `phone-harness config set telemetry false` pins it in the
+  config file too. Scripts, screen text and phone names never leave the
+  machine.
 
 Re-run the `phone-harness skill > …/SKILL.md` lines after pulling updates so
 the agent's copy matches the code.
@@ -50,6 +59,34 @@ the agent's copy matches the code.
 > *know* are required and all `--doctor` checks; a fresh machine may prompt for
 > more the first time an action runs. If `--doctor` passes but taps, typing, or
 > capture silently do nothing, look for a macOS permission prompt.
+
+## iPhone via Device Hub (Xcode 27)
+
+For a phone that iPhone Mirroring cannot reach: no Apple ID, a region where
+Mirroring is unavailable, or a device paired only for development.
+
+- **Xcode 27** installed and selected (`xcode-select -p` inside Xcode.app);
+  `xcrun devicectl list devices` must work.
+- The phone on **iOS 27 or later**, **Developer Mode** on (Settings → Privacy &
+  Security → Developer Mode; the toggle may only appear once pairing starts),
+  paired with the Mac by cable (Device Hub → Add Device (+) or just plug it in
+  and tap Trust). Wi‑Fi pairing exists but is untested here.
+- Device Hub open (Xcode → Open Developer Tool → Device Hub), the phone
+  selected in the sidebar, **View Screen** clicked once. The harness re-selects
+  the phone and presses View Screen itself later; it never launches Device Hub.
+- The same two terminal permissions as Mirroring: **Accessibility** (taps,
+  keystrokes, menu items) and **Screen Recording** (finding the phone inside
+  the Device Hub window). The Xcode Command Line Tools are not needed.
+- `phone-harness config set platform devicehub`. With one iPhone connected
+  the harness picks it; with several, `phone-harness config set
+  devicehub.udid <udid>` (from `xcrun devicectl list devices`).
+- Then `phone-harness --doctor devicehub`: it walks pyobjc → permissions →
+  Device Hub app → devicectl → phone (tunnel, Developer Mode, DDI, display
+  chrome) → Device Hub running → window → session state → phone screen located
+  → native screenshot → OCR.
+- Keep the full Device Hub window (not the compact one) visible on the main
+  display at any zoom; input requires Device Hub to be frontmost, so expect it
+  to come forward on every action.
 
 ## Android
 
@@ -75,8 +112,9 @@ the agent's copy matches the code.
 ## Both
 
 Set up each as above; `phone-harness config set platform …` picks the default,
-`PHONE_HARNESS_PLATFORM=…` picks per call. The two never interfere — the
-iPhone is driven through the mirroring window, the Android over adb.
+`PHONE_HARNESS_PLATFORM=…` picks per call. They never interfere — the
+iPhone is driven through the mirroring or Device Hub window, the Android over
+adb.
 
 `phone-harness config set telemetry false` turns off anonymous usage telemetry.
 
@@ -93,6 +131,22 @@ iPhone is driven through the mirroring window, the Android over adb.
   running a different Python than the one that has pyobjc; use the interpreter
   `pip install -e .` used, or `pip install pyobjc-framework-Quartz
   pyobjc-framework-Vision pyobjc-framework-Cocoa` for that one.
+- **Device Hub — `not-running` / `no-window`**: open Device Hub (Xcode → Open
+  Developer Tool → Device Hub); the harness never launches it.
+- **Device Hub — `no-device`**: the phone is not connected to CoreDevice:
+  cable, Trust prompt, Developer Mode, or `xcrun devicectl list devices` shows
+  it as `available (paired)` rather than `connected`.
+- **Device Hub — `unavailable`** ("Screen Sharing Unavailable"): Device Hub
+  went stale after a phone-side change (Developer Mode enabled, reboot). Quit
+  and relaunch it, select the phone, View Screen.
+- **Device Hub — the blob "is not the phone"**: zoom so the whole phone is
+  visible (View → Zoom to Fit / Physical Size) and keep the full window; a
+  new bezel needs its insets in `CHROME_INSETS` or `devicehub.inset`.
+- **Device Hub — taps do nothing**: Accessibility missing, or a modal on the
+  Mac keeps Device Hub from coming frontmost; on the Home Screen, labels are
+  not tap targets (use `open_app("com.apple.Preferences")` or tap the icon
+  ~20 pt above the label at Physical Size).
+- **Device Hub — `locked`**: unlock the phone. The harness never types a PIN.
 - **Android — `unauthorized`**: unlock the phone and tap Allow on the "Allow
   USB debugging?" prompt (replug if it does not appear).
 - **Android — `no-device`**: USB debugging off, cable/port, or for Wi‑Fi:

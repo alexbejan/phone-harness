@@ -1,15 +1,17 @@
 ---
 name: phone-harness
-description: "Control the user's phone — iPhone through the Mac's iPhone Mirroring window, or an Android over adb: open apps, tap, type, swipe, read the screen."
+description: "Control the user's phone — iPhone through the Mac's iPhone Mirroring window or Xcode 27's Device Hub, or an Android over adb: open apps, tap, type, swipe, read the screen."
 ---
 
 # phone-harness
 
 Direct control of the user's phone. iPhone: through the iPhone Mirroring app —
-screenshots + Vision OCR for eyes, HID-level CGEvents for hands. Android: over
-adb — screenshots + the phone's accessibility tree for eyes, `input` for hands
-(see the Android section; the helpers are the same). `phone-harness config`
-shows which is the default. For task-specific edits, use
+screenshots + Vision OCR for eyes, HID-level CGEvents for hands. iPhone via
+**Device Hub** (Xcode 27): native `devicectl` screenshots + Vision OCR for
+eyes, CGEvents into the Device Hub window for hands (see the Device Hub
+section). Android: over adb — screenshots + the phone's accessibility tree for
+eyes, `input` for hands (see the Android section; the helpers are the same).
+`phone-harness config` shows which is the default. For task-specific edits, use
 `agent-workspace/agent_helpers.py`. For setup or permission problems, read
 `install.md`.
 
@@ -137,6 +139,68 @@ PY
   the helpers don't cover — but raw CGEvents don't ride the helpers' delivery
   path, and where they land is its own question per event type. Check what
   actually happened on screen rather than assuming the event arrived.
+
+## Device Hub (iPhone through Xcode 27)
+
+Same helpers, different transport. `phone-harness config set platform
+devicehub` makes it the default; `PHONE_HARNESS_PLATFORM=devicehub` overrides
+per call. The harness drives the one iPhone connected to CoreDevice, or the
+one set in `devicehub.udid`; it never selects another phone in Device Hub.
+
+```bash
+PHONE_HARNESS_PLATFORM=devicehub phone-harness <<'PY'
+open_app("com.apple.Preferences")          # by bundle id, via devicectl; no Spotlight
+tap_text("General"); print(wait_for_text("About", timeout=5))
+PY
+```
+
+- **Eyes are native.** `screenshot()` and `ocr()` come from
+  `xcrun devicectl device capture screenshot` (the phone's own framebuffer,
+  full resolution, ~0.8 s), not from the Mac window, so small text reads
+  well even when Device Hub draws the phone small. `ocr()` boxes are still
+  global Mac screen points, tap-ready; `screen_info()["window"]` is the rect
+  of the phone screen inside the Device Hub window and `img_px` the native
+  size, so `image_point()` / `tap_image_point()` work unchanged.
+- **Hands need Device Hub frontmost.** Every tap, drag, key and menu action
+  activates Device Hub first; there is no background mode (the no-focus
+  trick brings it forward anyway). Expect the window to come to the front on
+  every action and say so to the user. `interruption()` reports it.
+- **Geometry is re-derived every call** from a window capture (the phone
+  chrome is found as the largest blob in the canvas, then inset). Any zoom
+  level works as long as the whole phone is visible in the full window; if
+  the harness says the blob "is not the phone", zoom to fit and retry. Never
+  cache coordinates across calls.
+- `scroll()` is a touch-drag (Device Hub ignores scroll-wheel events), so it
+  moves the list by exactly the dragged distance; `swipe()` flicks with
+  momentum; `swipe("left"/"right")` flips Home Screen pages; `long_press()`
+  works (1.2 s enters jiggle mode on the Home Screen). Vertical swipes work
+  here, unlike Mirroring.
+- **Home Screen labels are not tap targets** (iOS, not the harness): use
+  `open_app("<bundle id>")`, or `tap_icon("Settings")` from
+  `agent_helpers.py`, which taps the icon above the label. `tap_text` is
+  right for in-app buttons and rows.
+- `open_app` takes a bundle id (`com.apple.MobileSMS`) or an app name looked
+  up in `list_apps(include_system=True)`. An app resumes where it was left
+  (Settings deep in a sub-page, Messages on a thread); `shell("process launch
+  --device <udid> --terminate-existing <bundle id>")` restarts it at the root.
+- `type_text()` pastes through the device pasteboard (`devicectl device
+  pasteboard copy`, exact Unicode, emoji ok) then cmd+v; `keystrokes=True`
+  types US-layout keycodes through iOS autocorrect. Modifier combos reach
+  iOS: `press("cmd+a")`, `press("delete")` clear a field. **`press("return")`
+  in a Messages field SENDS** — never add it unless the user asked to send.
+- `home()`, `app_switcher()` and `shell("lock")` are Device Hub's Controls
+  menu items. `shell("info lockState")`, `shell("info displays")` and any
+  other `devicectl device …` subcommand return devicectl's JSON result for
+  this phone. No `back()`, no `current_app()`, no `ui()` tree.
+- `connection_state()`: `ready` | `not-running` | `no-device` | `no-window` |
+  `not-selected` | `unavailable` | `not-sharing` | `locked`.
+  `ensure_device()` re-selects the phone and presses View Screen itself;
+  `unavailable` ("Screen Sharing Unavailable") means the user must quit and
+  relaunch Device Hub; `not-running`, `no-device` and `locked` are theirs
+  too. Relay the message, do not retry-loop, never type a PIN.
+- Consent is stricter on a shared test phone: navigation, typing a draft and
+  reading are fine; anything that leaves the phone (send, call, sign in) and
+  any Settings change need the user's explicit go for that action.
 
 ## Android
 

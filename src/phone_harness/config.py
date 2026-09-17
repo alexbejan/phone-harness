@@ -34,7 +34,7 @@ VERSION = 1
 
 DEFAULTS = {
     "platform": "ios" if sys.platform == "darwin" else "android",   # iPhone needs a Mac
-    "telemetry": True,         # anonymous usage events; `config set telemetry false`
+    "telemetry": False,        # off by default in this fork (scripts + screen text never leave the machine)
     "android": {
         "adb": "adb",          # the binary; a path if it is not on PATH
         "poke_every": 25,      # seconds between keep-awake pokes
@@ -43,6 +43,10 @@ DEFAULTS = {
     "ios": {
         "restore_clipboard": False,   # put the old clipboard back after a paste
         "paste_settle": 2.0,          # ...after this many seconds, if so
+    },
+    "devicehub": {
+        "udid": "",            # the phone Device Hub drives; empty = the one connected iPhone
+        "inset": None,         # [l, t, r, b] screen-in-ring fractions for an unknown bezel
     },
 }
 
@@ -260,7 +264,7 @@ def install_id():
 CLI_USAGE = """Usage:
   phone-harness config                 every setting, its value, and where it came from
   phone-harness config get KEY
-  phone-harness config set KEY VALUE   e.g. config set platform android
+  phone-harness config set KEY VALUE   e.g. config set platform devicehub
   phone-harness config unset KEY
   phone-harness config path            where the files live
 """
@@ -281,8 +285,8 @@ def cli(args):
         print(json.dumps(value) if source != "unset" else f"{args[1]}: unset")
         return 0 if source != "unset" else 1
     if cmd == "set" and len(args) == 3:
-        if args[1] == "platform" and args[2] not in ("ios", "android"):
-            print("platform must be ios or android"); return 2
+        if args[1] == "platform" and args[2] not in ("ios", "android", "devicehub"):
+            print("platform must be ios, devicehub or android"); return 2
         v = set(args[1], args[2])
         print(f"{args[1]} = {json.dumps(v)}")
         return 0

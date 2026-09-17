@@ -7,8 +7,11 @@ Settings, then wait.
 
 ## 1. One question
 
-"Which phone should be your default — iPhone or Android?" (Both is fine: set
-up each, then ask which is the default.)
+"Which phone should be your default — iPhone (Mirroring), iPhone through
+Xcode 27's Device Hub, or Android?" (Both is fine: set up each, then ask which
+is the default.) Device Hub is the answer when iPhone Mirroring is unavailable
+in the user's region, the phone has no Apple ID, or it is a development test
+phone.
 
 ## 2. iPhone
 
@@ -23,6 +26,21 @@ Works through the macOS iPhone Mirroring app. Two things only the user can do:
 Check first — `phone-harness --doctor ios` — and only ask for what is missing.
 Whenever you capture or verify the screen, bring the Mirroring window forward
 so the user can see what you're doing.
+
+## 2b. iPhone via Device Hub
+
+Works through Xcode 27's Device Hub app. Only the user can:
+
+- Pair the phone with the Mac by cable (Trust prompt on the phone), enable
+  **Developer Mode** on it, open Device Hub (Xcode → Open Developer Tool →
+  Device Hub), select the phone and click **View Screen** once.
+- Grant the terminal **Accessibility** and **Screen Recording**.
+
+Check first — `phone-harness config set platform devicehub` then
+`phone-harness --doctor devicehub` — and only ask for what is missing. If
+several iPhones are paired, ask which one and set `devicehub.udid`; never
+drive a phone the user did not name. Device Hub comes to the front on every
+action, so tell the user the window will keep popping up while you work.
 
 ## 3. Android
 
@@ -40,8 +58,8 @@ Check with `phone-harness android` and `phone-harness --doctor android`.
 
 ## 4. Verify
 
-`phone-harness --doctor` for the default phone (add `ios` or `android` to
-check the other), then a read-only proof: take a screenshot and read the
+`phone-harness --doctor` for the default phone (add `ios`, `devicehub` or
+`android` to check another), then a read-only proof: take a screenshot and read the
 screen back to the user.
 
 ## 5. Demo (opt-in)
