@@ -22,3 +22,39 @@ def tap_icon(label, index=0):
     h = hits[index]
     tap(h["x"], h["y"] - 0.04 * screen_info()["window"]["h"])
     return h
+
+
+def messages_send(text, wait=1.0):
+    """iOS Messages, thread open: tap the compose field (OCRs as 'iMessage'/'¡Message', bottom of the screen), type, tap the
+    blue send arrow at the field's right end (no label: image point 966,2296 of a 1125x2436 native screenshot on the iPhone 11 Pro
+    test phone). Returns the OCR after the send. Proven 2026-09-18 (TRU-61 run)."""
+    import time
+    from phone_harness.helpers import ocr, tap, type_text, tap_image_point
+    f = None
+    for t in ocr():
+        if "message" in t["text"].lower() and t["y"] > 800:
+            f = t; break
+    if f is None:
+        raise RuntimeError("no compose field on screen: " + ", ".join(t["text"] for t in ocr())[:300])
+    tap(f["x"], f["y"]); time.sleep(0.6)
+    type_text(text); time.sleep(wait)
+    tap_image_point(966, 2296, image_size=(1125, 2436)); time.sleep(1.5)
+    return ocr()
+
+
+def messages_tail(n=12):
+    """The last n OCR strings of the open thread (the screen tail), for polling a reply without matching old bubbles."""
+    from phone_harness.helpers import ocr
+    return [t["text"] for t in ocr() if t["y"] > 120][-n:]
+
+
+def messages_wait(predicate, timeout=90, every=4):
+    """Poll the screen tail until predicate(tail) is true; returns the tail (or None on timeout)."""
+    import time
+    end = time.time() + timeout
+    while time.time() < end:
+        tail = messages_tail()
+        if predicate(tail):
+            return tail
+        time.sleep(every)
+    return None
