@@ -25,20 +25,20 @@ def tap_icon(label, index=0):
 
 
 def messages_send(text, wait=1.0):
-    """iOS Messages, thread open: tap the compose field (OCRs as 'iMessage'/'¡Message', bottom of the screen), type, tap the
-    blue send arrow at the field's right end (no label: image point 966,2296 of a 1125x2436 native screenshot on the iPhone 11 Pro
-    test phone). Returns the OCR after the send. Proven 2026-09-18 (TRU-61 run)."""
-    import time
-    from phone_harness.helpers import ocr, tap, type_text, tap_image_point
-    f = None
-    for t in ocr():
-        if "message" in t["text"].lower() and t["y"] > 800:
-            f = t; break
-    if f is None:
+    """iOS Messages, thread open: tap the compose field (its placeholder OCRs as 'iMessage'/'¡Message'/'Text Message'), type, tap
+    the blue send arrow at the field's right end. Both are found from the placeholder and the phone window, wherever Device Hub
+    draws the phone and whether or not the photo picker pushes the field up (2026-09-19, TRU-114: a fixed y > 800 and a fixed
+    arrow point missed both). Returns the OCR after the send. Proven 2026-09-18 (TRU-61 run), reworked 2026-09-19."""
+    import re, time
+    from phone_harness.helpers import ocr, tap, type_text, screen_info
+    w = screen_info()["window"]
+    hits = [t for t in ocr() if re.fullmatch(r"[i¡l1!]?\s?message|text message", t["text"].strip().lower()) and t["y"] > w["y"] + 0.3 * w["h"]]
+    if not hits:
         raise RuntimeError("no compose field on screen: " + ", ".join(t["text"] for t in ocr())[:300])
+    f = max(hits, key=lambda t: t["y"])
     tap(f["x"], f["y"]); time.sleep(0.6)
     type_text(text); time.sleep(wait)
-    tap_image_point(966, 2296, image_size=(1125, 2436)); time.sleep(1.5)
+    tap(w["x"] + 0.87 * w["w"], f["y"]); time.sleep(1.5)
     return ocr()
 
 
