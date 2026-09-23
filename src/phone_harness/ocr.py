@@ -3,6 +3,8 @@
 This is the mirror backend's element tree: OCR gives every visible string a
 bounding box, converted here into global screen points ready for tap().
 """
+import time
+
 import Quartz
 import Vision
 from Foundation import NSURL
@@ -16,6 +18,30 @@ def image_size(path):
     return int(props["PixelWidth"]), int(props["PixelHeight"])
 
 
+def _vision_request(path):
+    handler = Vision.VNImageRequestHandler.alloc().initWithURL_options_(
+        NSURL.fileURLWithPath_(path), None)
+    request = Vision.VNRecognizeTextRequest.alloc().init()
+    request.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelAccurate)
+    ok, err = handler.performRequests_error_([request], None)
+    return request, ok, err
+
+
+def _perform(path, attempts=2, backoff=0.8):
+    """Run the text request, retrying once after a short pause. Vision's
+    Neural Engine path fails now and then with a transient fault
+    (CRImageReaderError e5rtError, 13) and succeeds on the next call with
+    nothing changed (TRU-320, 2026-09-22: the doctor failed twice, passed on
+    the third run). A second failure is real and raises."""
+    for i in range(attempts):
+        request, ok, err = _vision_request(path)
+        if ok:
+            return request
+        if i + 1 < attempts:
+            time.sleep(backoff)
+    raise RuntimeError(f"Vision OCR failed ({attempts} attempts): {err}")
+
+
 def recognize(path, window):
     """OCR a capture of `window` ({x, y, w, h} screen points).
 
@@ -23,13 +49,7 @@ def recognize(path, window):
     screen points — pass straight to tap(). Vision's normalized boxes have a
     bottom-left origin; screen points have a top-left origin, hence the flip.
     """
-    handler = Vision.VNImageRequestHandler.alloc().initWithURL_options_(
-        NSURL.fileURLWithPath_(path), None)
-    request = Vision.VNRecognizeTextRequest.alloc().init()
-    request.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelAccurate)
-    ok, err = handler.performRequests_error_([request], None)
-    if not ok:
-        raise RuntimeError(f"Vision OCR failed: {err}")
+    request = _perform(path)
 
     img_w, img_h = image_size(path)
     sx = window["w"] / img_w  # image px -> screen points
