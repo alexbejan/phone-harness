@@ -77,6 +77,32 @@ def messages_clear_field():
     raise RuntimeError("the compose field did not come back empty after 4 rounds of cmd+a, delete; nothing sent")
 
 
+def _send_arrow_x(w, fy, fallback=0.858):
+    """The send arrow's x on the compose row, found by its colour in the native screenshot: the rightmost run of iOS blue
+    on the row at fy. The arrow moves with the layout (measured 2026-09-23: 0.857 of the phone width with the keyboard
+    layout, 0.882 with the Photos picker open under the field), so a fixed 0.858 tapped beside it and the draft stayed
+    (TRU-256 run 1). Falls back to `fallback` of the width when no blue run is found or no screenshot can be read."""
+    try:
+        from phone_harness.helpers import screenshot
+        from AppKit import NSBitmapImageRep
+        rep = NSBitmapImageRep.imageRepWithContentsOfFile_(screenshot())
+        W, H = rep.pixelsWide(), rep.pixelsHigh()
+        py = int((fy - w["y"]) / w["h"] * H)
+        blue = []
+        for px in range(int(0.97 * W), int(0.6 * W), -2):
+            c = rep.colorAtX_y_(px, py)
+            r, g, b = c.redComponent(), c.greenComponent(), c.blueComponent()
+            if b > 0.85 and r < 0.3 and 0.35 < g < 0.7:
+                blue.append(px)
+            elif blue and px < blue[-1] - 0.05 * W:   # the white arrow glyph splits the pill; a longer gap ends it
+                break
+        if len(blue) >= 6:
+            return w["x"] + (sum(blue) / len(blue)) / W * w["w"]
+    except Exception:
+        pass
+    return w["x"] + fallback * w["w"]
+
+
 def messages_send(text, wait=1.0):
     """iOS Messages, thread open: empty the compose field (messages_clear_field), paste the text, tap the blue send arrow.
     Field and arrow are found from the placeholder and the phone window, wherever Device Hub draws the phone and whether or
@@ -107,7 +133,7 @@ def messages_send(text, wait=1.0):
             break
     else:
         raise RuntimeError("the text never reached the compose field (placeholder still showing after two pastes); nothing sent")
-    arrow = (w["x"] + 0.858 * w["w"], f["y"])
+    arrow = (_send_arrow_x(w, f["y"]), f["y"])
     for attempt in range(2):
         tap(*arrow); time.sleep(1.5)
         if _placeholder_now(w):
