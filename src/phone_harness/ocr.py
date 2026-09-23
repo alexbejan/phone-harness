@@ -3,6 +3,7 @@
 This is the mirror backend's element tree: OCR gives every visible string a
 bounding box, converted here into global screen points ready for tap().
 """
+import sys
 import time
 
 import Quartz
@@ -18,33 +19,48 @@ def image_size(path):
     return int(props["PixelWidth"]), int(props["PixelHeight"])
 
 
-def _vision_request(path, cpu_only=False):
+def _vision_request(path, cpu_only=False, fast=False):
     handler = Vision.VNImageRequestHandler.alloc().initWithURL_options_(
         NSURL.fileURLWithPath_(path), None)
     request = Vision.VNRecognizeTextRequest.alloc().init()
-    request.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelAccurate)
+    request.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelFast if fast
+                                 else Vision.VNRequestTextRecognitionLevelAccurate)
     if cpu_only:
         request.setUsesCPUOnly_(True)
     ok, err = handler.performRequests_error_([request], None)
     return request, ok, err
 
 
-def _perform(path, attempts=2, backoff=0.8):
-    """Run the text request, retrying once after a short pause. Vision's
-    Neural Engine path fails now and then with a transient fault
-    (CRImageReaderError e5rtError, 13) and succeeds on the next call with
-    nothing changed (TRU-320, 2026-09-22: the doctor failed twice, passed on
-    the third run). The retry runs on the CPU only: on 2026-09-23 the fault
-    came twice in a row 0.8 s apart on the default (Neural Engine) path, and
-    the CPU path read the same capture in 0.12 s. A second failure is real
-    and raises."""
-    for i in range(attempts):
-        request, ok, err = _vision_request(path, cpu_only=i > 0)
+FALLBACK_S = 30.0          # after a fault, the fast model for this long
+_fast_until = 0.0
+
+
+def _perform(path):
+    """Run the text request, riding out Vision's transient fault
+    CRImageReaderError e5rtError (13) (TRU-320). Measured 2026-09-23 during a
+    prove run: once it starts, the ACCURATE model fails on every call for a
+    while, on the default path and with usesCPUOnly alike (about 17 calls in
+    a row), while the FAST model on the CPU read every one of them and the
+    run passed. 300 back-to-back calls outside the harness never hit it.
+    So: accurate; on a fault, the fast model at once and for the next
+    FALLBACK_S seconds (no retry penalty on every call); one more fast try
+    after 2.5 s; a fault there is real and raises. Faults go to stderr."""
+    global _fast_until
+    if time.monotonic() >= _fast_until:
+        request, ok, err = _vision_request(path)
         if ok:
             return request
-        if i + 1 < attempts:
-            time.sleep(backoff)
-    raise RuntimeError(f"Vision OCR failed ({attempts} attempts): {err}")
+        print(f"[ocr] Vision fault on the accurate model, fast model for "
+              f"{FALLBACK_S:.0f} s: {err}", file=sys.stderr)
+        _fast_until = time.monotonic() + FALLBACK_S
+    for pause in (0.0, 2.5):
+        if pause:
+            time.sleep(pause)
+        request, ok, err = _vision_request(path, cpu_only=True, fast=True)
+        if ok:
+            return request
+        print(f"[ocr] Vision fault on the fast model: {err}", file=sys.stderr)
+    raise RuntimeError(f"Vision OCR failed (accurate and fast models): {err}")
 
 
 def recognize(path, window):
