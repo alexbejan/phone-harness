@@ -18,11 +18,13 @@ def image_size(path):
     return int(props["PixelWidth"]), int(props["PixelHeight"])
 
 
-def _vision_request(path):
+def _vision_request(path, cpu_only=False):
     handler = Vision.VNImageRequestHandler.alloc().initWithURL_options_(
         NSURL.fileURLWithPath_(path), None)
     request = Vision.VNRecognizeTextRequest.alloc().init()
     request.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelAccurate)
+    if cpu_only:
+        request.setUsesCPUOnly_(True)
     ok, err = handler.performRequests_error_([request], None)
     return request, ok, err
 
@@ -32,9 +34,12 @@ def _perform(path, attempts=2, backoff=0.8):
     Neural Engine path fails now and then with a transient fault
     (CRImageReaderError e5rtError, 13) and succeeds on the next call with
     nothing changed (TRU-320, 2026-09-22: the doctor failed twice, passed on
-    the third run). A second failure is real and raises."""
+    the third run). The retry runs on the CPU only: on 2026-09-23 the fault
+    came twice in a row 0.8 s apart on the default (Neural Engine) path, and
+    the CPU path read the same capture in 0.12 s. A second failure is real
+    and raises."""
     for i in range(attempts):
-        request, ok, err = _vision_request(path)
+        request, ok, err = _vision_request(path, cpu_only=i > 0)
         if ok:
             return request
         if i + 1 < attempts:
