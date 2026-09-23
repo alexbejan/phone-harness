@@ -120,5 +120,31 @@ class MessagesSend(unittest.TestCase):
         self.assertEqual(p.sent, [])
 
 
+class PlaceholderReads(unittest.TestCase):
+    """How Vision reads the empty field on the real phone (2026-09-23): every one must count as the placeholder."""
+
+    def test_measured_reads_match(self):
+        mod, _ = load(FakePhone(["ok"]))
+        for text in ("iMessage", "¡Message", "limessage", "rimessage", "Imessage", "Text Message"):
+            box = {"text": text, "x": 870.0, "y": 675.0}
+            self.assertTrue(mod._msg_placeholder([box], WIN), text)
+
+    def test_a_bubble_saying_more_is_not_the_field(self):
+        mod, _ = load(FakePhone(["ok"]))
+        for text in ("new message", "your message was sent", "messages"):
+            self.assertFalse(mod._msg_placeholder([{"text": text, "x": 870.0, "y": 675.0}], WIN), text)
+
+    def test_send_with_fast_model_read(self):
+        global FIELD
+        saved = FIELD
+        FIELD = dict(saved, text="limessage")
+        try:
+            p = FakePhone(["callout"])
+            MessagesSend.send(MessagesSend(), p)
+            self.assertEqual(p.sent, ["hi"])
+        finally:
+            FIELD = saved
+
+
 if __name__ == "__main__":
     unittest.main()
