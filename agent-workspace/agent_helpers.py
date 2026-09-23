@@ -24,12 +24,31 @@ def tap_icon(label, index=0):
     return h
 
 
-_MSG_PLACEHOLDER = r"[i¡l1!]?\s?message|text message"
+# The field's placeholder as Vision reads it: "iMessage", "¡Message", and on the fast model after a Vision fault
+# (TRU-320) "limessage" / "rimessage" / "Imessage" (measured 2026-09-23 on the test phone, 4 reads of one screen).
+# Up to two stray characters before "message": a one-character pattern missed "limessage", so a send that went out
+# raised "draft still in the compose field" and the next clear-field call raised before any paste.
+_MSG_PLACEHOLDER = r"[a-z¡!1|]{0,2}\s?message|text message"
 
 
 def _msg_placeholder(boxes, w):
     import re
     return [t for t in boxes if re.fullmatch(_MSG_PLACEHOLDER, t["text"].strip().lower()) and t["y"] > w["y"] + 0.3 * w["h"]]
+
+
+def _placeholder_now(w, tries=3, gap=0.4):
+    """The placeholder's OCR boxes, read up to `tries` times: with the field focused, the blinking cursor sits on the
+    placeholder and one read in two finds nothing there (measured 2026-09-23: 'after tap' and 'after delete' reads came
+    back without it while the screenshot showed an empty field), so one miss is not a draft."""
+    import time
+    from phone_harness.helpers import ocr
+    for i in range(tries):
+        hits = _msg_placeholder(ocr(), w)
+        if hits:
+            return hits
+        if i < tries - 1:
+            time.sleep(gap)
+    return []
 
 
 def messages_clear_field():
@@ -52,7 +71,7 @@ def messages_clear_field():
     tap(w["x"] + 0.35 * w["w"], fy); time.sleep(0.6)
     for _ in range(4):
         press("cmd+a"); time.sleep(0.2); press("delete"); time.sleep(0.5)
-        hits = _msg_placeholder(ocr(), w)
+        hits = _placeholder_now(w)
         if hits:
             return max(hits, key=lambda t: t["y"])
     raise RuntimeError("the compose field did not come back empty after 4 rounds of cmd+a, delete; nothing sent")
@@ -84,16 +103,15 @@ def messages_send(text, wait=1.0):
         if callout:
             tap(callout["x"], callout["y"]); time.sleep(wait)
             boxes = ocr()
-        if not _msg_placeholder(boxes, w):
+        if not _placeholder_now(w):
             break
     else:
         raise RuntimeError("the text never reached the compose field (placeholder still showing after two pastes); nothing sent")
     arrow = (w["x"] + 0.858 * w["w"], f["y"])
     for attempt in range(2):
         tap(*arrow); time.sleep(1.5)
-        boxes = ocr()
-        if _msg_placeholder(boxes, w):
-            return boxes
+        if _placeholder_now(w):
+            return ocr()
     raise RuntimeError("draft still in the compose field after two taps on the send arrow; not sent")
 
 
