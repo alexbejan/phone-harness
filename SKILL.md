@@ -247,6 +247,14 @@ PY
   types US-layout keycodes through iOS autocorrect. Modifier combos reach
   iOS: `press("cmd+a")`, `press("delete")` clear a field. **`press("return")`
   in a Messages field SENDS** — never add it unless the user asked to send.
+- Sending an iMessage (with the user's go): `messages_send(text)` from
+  `agent_helpers.py`, never your own tap + paste + arrow. It empties the
+  field first (`messages_clear_field()`): a leftover draft from a send that
+  failed silently otherwise swallows the next paste, and both go out as one
+  garbled message (2026-09-21). It taps iOS 27's Paste callout when the
+  paste raises it instead of inserting, never taps the arrow on an empty
+  field, and never pastes twice into a draft. When it raises, read the
+  error; do not call it again before `messages_clear_field()` (TRU-231).
 - `home()`, `app_switcher()` and `shell("lock")` are Device Hub's Controls
   menu items. `shell("info lockState")`, `shell("info displays")` and any
   other `devicectl device …` subcommand return devicectl's JSON result for
