@@ -260,7 +260,15 @@ PY
   other `devicectl device …` subcommand return devicectl's JSON result for
   this phone. No `back()`, no `current_app()`, no `ui()` tree.
 - `connection_state()`: `ready` | `not-running` | `no-device` | `no-window` |
-  `not-selected` | `unavailable` | `not-sharing` | `locked`.
+  `not-selected` | `unavailable` | `not-sharing` | `rotated` | `locked`.
+  **`rotated`: Device Hub draws the phone sideways or upside down** (its rotate
+  button under the phone turns the VIEW, not the phone). Every tap, drag and
+  long press is refused with `RotatedView` until the view stands upright:
+  measured 2026-09-23, an upside-down view mirrored every tap (a Back tap opened
+  a contact card, a field tap opened Settings' Apple Account sign-in sheet).
+  Click the rotate button under the phone until the notch is at the top; if
+  Device Hub answers "Action Failed: The connection was invalidated", dismiss
+  the dialog and click again.
   `ensure_device()` re-selects the phone and presses View Screen itself;
   `unavailable` ("Screen Sharing Unavailable") means the user must quit and
   relaunch Device Hub; `not-running`, `no-device` and `locked` are theirs

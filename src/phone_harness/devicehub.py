@@ -108,6 +108,44 @@ CHROME_INSETS = {
 CHROME_RING_ASPECT = {"com.apple.dt.devicekit.chrome.phone2": 0.508}
 _ASPECT_TOL = 0.04
 
+# A rotated view (Device Hub's rotate button under the phone turns the VIEW, not the phone). Upright geometry mapped onto
+# a view turned 180 degrees lands every tap at its mirror point: measured 2026-09-23 on the test iPhone, a "Back" tap
+# opened the contact card and a field tap hit "Turn On Contact Key Verification", which opened Settings' Apple Account
+# sign-in sheet (closed, nothing signed in). The notch is drawn black in the canvas at the top of an upright screen; the
+# share of pure-black pixels in the top-centre and bottom-centre strips of the screen, on real window captures:
+#   upright     top 0.67 bottom 0.00 (and 0.50 / 0.00 on a live capture)   upside down  top 0.00 bottom 0.67
+#   sideways    the ring's aspect is ~2.10, the inverse of the phone's ~0.48 (it used to read as "not-sharing")
+NOTCH_BLACK = 14          # a channel value under this is the notch's black
+NOTCH_SEEN = 0.30         # this share of black pixels in a strip = the notch is there
+NOTCH_NONE = 0.10         # ... and under this in the other strip
+
+
+class RotatedView(RuntimeError):
+    """Device Hub draws the phone turned; taps would land in the wrong place, so none is sent."""
+
+
+def view_orientation(buf, bpr, screen, ring, want):
+    """'upright' | 'upside-down' | 'sideways' | None (cannot tell: a black screen hides the notch). `screen` = (x, y, w, h)
+    of the phone screen in image px, `ring` the chrome blob, `want` the chrome's upright ring aspect."""
+    if want and abs(ring[3] / ring[2] - want) <= _ASPECT_TOL:
+        return "sideways"
+    sx, sy, sw, sh = screen
+
+    def black(y0, y1):
+        n = k = 0
+        for yy in range(int(sy + sh * y0), int(sy + sh * y1)):
+            for xx in range(int(sx + sw * 0.35), int(sx + sw * 0.65)):
+                o = yy * bpr + xx * 4
+                n += 1
+                k += buf[o] < NOTCH_BLACK and buf[o + 1] < NOTCH_BLACK and buf[o + 2] < NOTCH_BLACK
+        return k / n if n else 0.0
+    top, bottom = black(0.003, 0.025), black(0.975, 0.997)
+    if top >= NOTCH_SEEN and bottom < NOTCH_NONE:
+        return "upright"
+    if bottom >= NOTCH_SEEN and top < NOTCH_NONE:
+        return "upside-down"
+    return None
+
 # Device Hub menu items used for hardware controls: (menu, item).
 _MENU = {"home": ("Controls", "Home"), "recents": ("Controls", "App Switcher"),
          "lock": ("Controls", "Lock"), "screenshot": ("Controls", "Screenshot")}
@@ -638,7 +676,7 @@ class DeviceHub(Backend):
         if r.returncode != 0 or not path.exists() or path.stat().st_size < 1000:
             raise RuntimeError("window capture failed (Screen Recording permission?): "
                                + r.stderr.decode(errors="replace").strip())
-        _, _, img_w, img_h = _load_png(path)
+        buf, bpr, img_w, img_h = _load_png(path)
         scale = img_w / win["w"]                       # image px per point
         cx, cy, cw, ch = canvas_region(win)
         ring, bg = largest_blob(path, (cx * scale, cy * scale, cw * scale, ch * scale))
@@ -655,6 +693,10 @@ class DeviceHub(Backend):
                 "`devicehub.inset` to [left, top, right, bottom] fractions of the ring.")
         want = CHROME_RING_ASPECT.get(chrome)
         got = ring[2] / ring[3]
+        if view_orientation(buf, bpr, (0, 0, 0, 0), ring, want) == "sideways":
+            raise RotatedView(
+                f"{APP_NAME} draws the phone on its side (ring aspect {got:.3f}); taps would land in the wrong "
+                "place, so none is sent. Click the rotate button under the phone until it stands upright.")
         if want and abs(got - want) > _ASPECT_TOL:
             raise RuntimeError(
                 f"the blob in the canvas ({ring[2]}x{ring[3]} px, aspect {got:.3f}) "
@@ -665,6 +707,10 @@ class DeviceHub(Backend):
         sy = ring[1] + ring[3] * t
         sw = ring[2] * (1 - l - rr)
         sh = ring[3] * (1 - t - b)
+        if view_orientation(buf, bpr, (sx, sy, sw, sh), ring, want) == "upside-down":
+            raise RotatedView(
+                f"{APP_NAME} draws the phone upside down (the notch is at the bottom); every tap would land at its "
+                "mirror point, so none is sent. Click the rotate button under the phone twice, until it stands upright.")
         self._geom = {"x": win["x"] + sx / scale, "y": win["y"] + sy / scale,
                       "w": sw / scale, "h": sh / scale, "id": win["id"],
                       "ring": ring, "scale": scale, "window": win}
@@ -888,7 +934,7 @@ class DeviceHub(Backend):
 
     def _session_state(self):
         """'not-running' | 'no-device' | 'no-window' | 'not-selected' |
-        'unavailable' | 'not-sharing' | 'locked' | 'ready'."""
+        'unavailable' | 'not-sharing' | 'rotated' | 'locked' | 'ready'."""
         if running_app() is None:
             return "not-running"
         dev = next((d for d in list_devices() if d["udid"] == self.udid), None)
@@ -907,6 +953,8 @@ class DeviceHub(Backend):
             return "not-sharing"
         try:
             self._screen_geometry(force=True)
+        except RotatedView:
+            return "rotated"
         except RuntimeError:
             return "not-sharing"
         try:
@@ -970,6 +1018,9 @@ class DeviceHub(Backend):
                            "stale after phone-side changes: quit and relaunch Device "
                            "Hub, then click View Screen.",
             "not-sharing": "screen sharing did not start after View Screen.",
+            "rotated": "the phone is drawn rotated (sideways or upside down) in the canvas; taps would land in the "
+                       "wrong place, so none is sent. Click the rotate button under the phone until it stands upright "
+                       "(a Mac view change; nothing changes on the phone).",
             "locked": "the phone is locked with a passcode; unlock it (I never type PINs).",
         }
         raise RuntimeError(f"Device Hub is not ready ({state}): {msgs.get(state, state)}")

@@ -181,6 +181,8 @@ def _doctor_devicehub():
     hints = {"not-selected": "select the phone in the sidebar (the harness does this itself on first use)",
              "not-sharing": "click View Screen (the harness does this itself on first use)",
              "unavailable": "Screen Sharing Unavailable: quit and relaunch Device Hub, then View Screen",
+             "rotated": "the view is turned (sideways or upside down): click the rotate button under the phone "
+                        "until it stands upright; taps are refused until then",
              "locked": "unlock the phone", "no-device": "cable / pairing"}
     _check(f"session state: {state}", state == "ready", hints.get(state, ""))
     if state != "ready":
