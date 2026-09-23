@@ -58,6 +58,10 @@ for _ in range(4):                     # clear fully, tolerating any pre-existin
     press("cmd+a"); press("delete"); wait(0.5)
     if not draft_line(): break
 check("draft cleared (cmd+a, delete)", not any("Draft" in t or "keys" in t for t in draft_line()))
+# messages_clear_field (TRU-231): a leftover draft hides the placeholder; the helper must still find the field and empty it.
+type_text("Leftover ph"); wait(1.0)
+f = messages_clear_field()
+check("messages_clear_field empties a leftover draft", bool(f) and not any("Leftover" in t for t in draft_line()))
 home()
 check("list_apps", "com.apple.Preferences" in list_apps(include_system=True))
 check("shell(info lockState)", "passcodeRequired" in shell("info lockState"))
